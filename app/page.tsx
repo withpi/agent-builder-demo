@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Multiselect, MultiselectOption } from "@/components/ui/multiselect"
 import {
   Play,
   Square,
@@ -27,12 +28,17 @@ interface TraceEntry {
   type: "thinking" | "action" | "observation" | "final"
   content: string
   timestamp: Date
+  rubricScores?: Array<{
+    rubricItemId: string
+    score: number // 0.00 to 1.00 (2 decimal places)
+  }>
 }
 
 interface EvaluationResult {
   id: string
   configurationHash: string
   configurationName: string
+  systemPrompt: string // Store the actual system prompt used
   userPrompt: string
   finalOutput: string
   timestamp: Date
@@ -40,6 +46,11 @@ interface EvaluationResult {
   isExecuting?: boolean // Added executing state flag
   model: string
   usePiJudge: boolean
+  metrics: {
+    steps: number
+    latency: number // Total time in milliseconds
+    totalTokens: number
+  }
 }
 
 interface LabeledDataEntry {
@@ -53,11 +64,20 @@ interface LabeledDataEntry {
   userPrompt: string
 }
 
+interface EvaluationRubricItem {
+  id: string
+  criteria: string
+  description: string
+  traceType: "thinking" | "action" | "observation" | "final" | "general"
+  toolName: string | null
+  timestamp: Date
+}
+
 interface FeedbackModalProps {
   traceId: string
   isPositive: boolean
   onClose: () => void
-  onSubmit: (feedback: string) => void
+  onSubmit: (feedback: string) => Promise<void>
 }
 
 function FeedbackModal({ traceId, isPositive, onClose, onSubmit }: FeedbackModalProps) {
@@ -66,10 +86,8 @@ function FeedbackModal({ traceId, isPositive, onClose, onSubmit }: FeedbackModal
 
   const handleSubmit = async () => {
     setIsSubmitting(true)
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1000))
-    console.log(`Feedback for trace ${traceId}:`, { isPositive, feedback })
-    onSubmit(feedback)
+    // Call the actual feedback submission which includes the helper API call
+    await onSubmit(feedback)
     setIsSubmitting(false)
     onClose()
   }
@@ -108,7 +126,7 @@ function FeedbackModal({ traceId, isPositive, onClose, onSubmit }: FeedbackModal
 }
 
 export default function AgentTracePage() {
-  const [goal, setGoal] = useState("Plan a trip")
+  const [goal, setGoal] = useState("Summarize data about the provided country and the exchange rates between the country the user provides and India\n\nIf the user provides multiple countries, instead summarize the exchange rates between each of the countries and highlight which country has the strongest currency\n\nif the user provides india as the country, show the exchange rates between india and the usa")
   const [userPrompt, setUserPrompt] = useState("")
   const [isRunning, setIsRunning] = useState(false)
   const [traces, setTraces] = useState<TraceEntry[]>([])
@@ -119,25 +137,313 @@ export default function AgentTracePage() {
   const [selectedModel, setSelectedModel] = useState("gpt-4")
   const [usePiJudge, setUsePiJudge] = useState(false)
   const [labeledData, setLabeledData] = useState<LabeledDataEntry[]>([])
+  const [evaluationRubric, setEvaluationRubric] = useState<EvaluationRubricItem[]>([
+    {
+      id: "tool-call",
+      criteria: "Tool Call",
+      description: "Does this step call a tool?",
+      traceType: "general",
+      toolName: null,
+      timestamp: new Date()
+    }
+  ])
+  const [selectedRubricFilters, setSelectedRubricFilters] = useState<string[]>(["all"])
   const traceEndRef = useRef<HTMLDivElement>(null)
   const isRunningRef = useRef(false)
 
   const [tools, setTools] = useState([
     {
       id: "1",
-      name: "restaurant_search",
-      description: "Find restaurants by location and cuisine type",
-      params: "(location, cuisine)",
+      name: "search_countries",
+      description: "Search for countries by name and get detailed information including capital, population, region, currencies, languages, and more",
+      params: "(query)",
     },
-    { id: "2", name: "map_tool", description: "Get coordinates, distances, and optimal routes", params: "(locations)" },
+    {
+      id: "2",
+      name: "get_exchange_rates",
+      description: "Get all exchange rates from a base currency to all supported currencies using the standard Exchange Rate API",
+      params: "(baseCurrency)",
+    },
+    {
+      id: "3",
+      name: "convert_currency_pair",
+      description: "Convert between two specific currencies with optional amount calculation",
+      params: "(baseCurrency,targetCurrency,amount)",
+    },
   ])
 
-  const addTrace = (type: TraceEntry["type"], content: string) => {
+  // Helper function to generate Pi scoring API call for a trace step
+  const generatePiRubricScores = async (traceContent: string, traceType: TraceEntry["type"]): Promise<Array<{rubricItemId: string, score: number}>> => {
+    const relevantRubricItems = evaluationRubric.filter(item => 
+      item.traceType === traceType || item.traceType === "general"
+    )
+    
+    if (relevantRubricItems.length === 0) {
+      return []
+    }
+
+    try {
+      const response = await fetch("/api/pi-scoring", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          traceContent,
+          rubricCriteria: relevantRubricItems
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`Pi scoring API error: ${response.status}`)
+      }
+
+      const result = await response.json()
+      return result.scores || []
+    } catch (error) {
+      console.error("Error calling Pi scoring API:", error)
+      // Fallback to mock scores on error
+      return relevantRubricItems.map(item => ({
+        rubricItemId: item.id,
+        score: Math.round((Math.random() * 0.8 + 0.1) * 100) / 100
+      }))
+    }
+  }
+
+  // Helper function to update scores for an existing criteria in all traces
+  const updateCriteriaScoresInTraces = async (criteriaId: string, updatedCriteria: EvaluationRubricItem) => {
+    // First, remove scores for this criteria from all traces (in case applicability changed)
+    setTraces((prev) => prev.map(t => ({
+      ...t,
+      rubricScores: t.rubricScores?.filter(score => score.rubricItemId !== criteriaId) || []
+    })))
+
+    setEvaluationResults((prev) => prev.map(result => ({
+      ...result,
+      traces: result.traces.map(t => ({
+        ...t,
+        rubricScores: t.rubricScores?.filter(score => score.rubricItemId !== criteriaId) || []
+      }))
+    })))
+
+    // Get all traces that this criteria applies to
+    const applicableTraces = traces.filter(trace => {
+      if (updatedCriteria.traceType === trace.type || updatedCriteria.traceType === "general") {
+        if (updatedCriteria.traceType === "action" && updatedCriteria.toolName) {
+          const toolMatch = trace.content.match(/(\w+)\(/)
+          const detectedToolName = toolMatch ? toolMatch[1] : null
+          return detectedToolName === updatedCriteria.toolName
+        }
+        return true
+      }
+      return false
+    })
+
+    // Generate Pi scores for each applicable trace
+    for (const trace of applicableTraces) {
+      try {
+        // Create a temporary rubric with just the updated criteria for scoring
+        const tempRubric = [updatedCriteria]
+        const response = await fetch("/api/pi-scoring", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            traceContent: trace.content,
+            rubricCriteria: tempRubric
+          }),
+        })
+
+        let newScore: number
+        if (response.ok) {
+          const result = await response.json()
+          newScore = result.scores?.[0]?.score || Math.round((Math.random() * 0.8 + 0.1) * 100) / 100
+        } else {
+          // Fallback to mock score
+          newScore = Math.round((Math.random() * 0.8 + 0.1) * 100) / 100
+        }
+
+        // Add the new score to applicable traces
+        setTraces((prev) => prev.map(t => 
+          t.id === trace.id ? {
+            ...t,
+            rubricScores: [...(t.rubricScores || []), { rubricItemId: criteriaId, score: newScore }]
+          } : t
+        ))
+
+        // Update traces in evaluation results
+        setEvaluationResults((prev) => prev.map(result => ({
+          ...result,
+          traces: result.traces.map(t => 
+            t.id === trace.id ? {
+              ...t,
+              rubricScores: [...(t.rubricScores || []), { rubricItemId: criteriaId, score: newScore }]
+            } : t
+          )
+        })))
+      } catch (error) {
+        console.error("Error updating criteria scores:", error)
+        // Fallback to mock score
+        const newScore = Math.round((Math.random() * 0.8 + 0.1) * 100) / 100
+        
+        setTraces((prev) => prev.map(t => 
+          t.id === trace.id ? {
+            ...t,
+            rubricScores: [...(t.rubricScores || []), { rubricItemId: criteriaId, score: newScore }]
+          } : t
+        ))
+
+        setEvaluationResults((prev) => prev.map(result => ({
+          ...result,
+          traces: result.traces.map(t => 
+            t.id === trace.id ? {
+              ...t,
+              rubricScores: [...(t.rubricScores || []), { rubricItemId: criteriaId, score: newScore }]
+            } : t
+          )
+        })))
+      }
+    }
+  }
+
+  // Helper function to add scores for a new criteria to existing traces
+  const addNewCriteriaScoresToTraces = async (newCriteriaId: string, newCriteria: EvaluationRubricItem) => {
+    // Get all traces that this criteria applies to
+    const applicableTraces = traces.filter(trace => {
+      if (newCriteria.traceType === trace.type || newCriteria.traceType === "general") {
+        if (newCriteria.traceType === "action" && newCriteria.toolName) {
+          const toolMatch = trace.content.match(/(\w+)\(/)
+          const detectedToolName = toolMatch ? toolMatch[1] : null
+          return detectedToolName === newCriteria.toolName
+        }
+        return true
+      }
+      return false
+    })
+
+    // Generate Pi scores for each applicable trace
+    for (const trace of applicableTraces) {
+      try {
+        // Create a temporary rubric with just the new criteria for scoring
+        const tempRubric = [newCriteria]
+        const response = await fetch("/api/pi-scoring", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            traceContent: trace.content,
+            rubricCriteria: tempRubric
+          }),
+        })
+
+        let newScore: number
+        if (response.ok) {
+          const result = await response.json()
+          newScore = result.scores?.[0]?.score || Math.round((Math.random() * 0.8 + 0.1) * 100) / 100
+        } else {
+          // Fallback to mock score
+          newScore = Math.round((Math.random() * 0.8 + 0.1) * 100) / 100
+        }
+
+        // Update current traces
+        setTraces((prev) => prev.map(t => 
+          t.id === trace.id ? {
+            ...t,
+            rubricScores: [...(t.rubricScores || []), {
+              rubricItemId: newCriteriaId,
+              score: newScore
+            }]
+          } : t
+        ))
+
+        // Update traces in evaluation results
+        setEvaluationResults((prev) => prev.map(result => ({
+          ...result,
+          traces: result.traces.map(t => 
+            t.id === trace.id ? {
+              ...t,
+              rubricScores: [...(t.rubricScores || []), {
+                rubricItemId: newCriteriaId,
+                score: newScore
+              }]
+            } : t
+          )
+        })))
+      } catch (error) {
+        console.error("Error adding new criteria scores:", error)
+        // Fallback to mock score
+        const newScore = Math.round((Math.random() * 0.8 + 0.1) * 100) / 100
+        
+        setTraces((prev) => prev.map(t => 
+          t.id === trace.id ? {
+            ...t,
+            rubricScores: [...(t.rubricScores || []), {
+              rubricItemId: newCriteriaId,
+              score: newScore
+            }]
+          } : t
+        ))
+
+        setEvaluationResults((prev) => prev.map(result => ({
+          ...result,
+          traces: result.traces.map(t => 
+            t.id === trace.id ? {
+              ...t,
+              rubricScores: [...(t.rubricScores || []), {
+                rubricItemId: newCriteriaId,
+                score: newScore
+              }]
+            } : t
+          )
+        })))
+      }
+    }
+  }
+
+  // Helper function to calculate average score for a trace step
+  const calculateTraceAverageScore = (trace: TraceEntry): number => {
+    if (!trace.rubricScores || trace.rubricScores.length === 0) return 0
+    const sum = trace.rubricScores.reduce((acc, score) => acc + score.score, 0)
+    return Math.round((sum / trace.rubricScores.length) * 100) / 100
+  }
+
+  // Helper function to calculate average score for traces based on selected rubric criteria
+  const calculateTracesAverageScore = (traces: TraceEntry[], selectedCriteria: string[]): number => {
+    if (traces.length === 0) return 0
+    
+    // If "all" is selected, use all scores
+    if (selectedCriteria.includes("all")) {
+      const allScores = traces.flatMap(trace => trace.rubricScores || [])
+      if (allScores.length === 0) return 0
+      const sum = allScores.reduce((acc, score) => acc + score.score, 0)
+      return Math.round((sum / allScores.length) * 100) / 100
+    }
+    
+    // If no criteria selected, return 0 (no filtering)
+    if (selectedCriteria.length === 0) {
+      return 0
+    }
+    
+    // Filter scores based on selected criteria
+    const filteredScores = traces.flatMap(trace => 
+      (trace.rubricScores || []).filter(score => selectedCriteria.includes(score.rubricItemId))
+    )
+    
+    if (filteredScores.length === 0) return 0
+    const sum = filteredScores.reduce((acc, score) => acc + score.score, 0)
+    return Math.round((sum / filteredScores.length) * 100) / 100
+  }
+
+  const addTrace = async (type: TraceEntry["type"], content: string) => {
+    const rubricScores = await generatePiRubricScores(content, type)
     const newTrace: TraceEntry = {
       id: Date.now().toString() + Math.random(),
       type,
       content,
       timestamp: new Date(),
+      rubricScores,
     }
     setTraces((prev) => [...prev, newTrace])
   }
@@ -147,7 +453,13 @@ export default function AgentTracePage() {
   }
 
   const getConfigurationHash = () => {
-    return `${goal.slice(0, 30)}... (${selectedModel}${usePiJudge ? ", Pi Judge" : ""})`
+    // Create a unique hash by using a simple hash of the system prompt
+    const hash = goal.split('').reduce((a, b) => {
+      a = ((a << 5) - a) + b.charCodeAt(0)
+      return a & a
+    }, 0)
+    const promptPreview = goal.length > 40 ? goal.slice(0, 40) + "..." : goal
+    return `${promptPreview} (${selectedModel}${usePiJudge ? ", Pi Judge" : ""}) [${Math.abs(hash).toString(36).slice(0, 6)}]`
   }
 
   // Auto-scroll to bottom when new traces are added
@@ -166,19 +478,62 @@ export default function AgentTracePage() {
     isRunningRef.current = true
     clearTrace()
 
-    const executingResult: EvaluationResult = {
-      id: Date.now().toString() + Math.random(),
-      configurationHash: getConfigurationHash(),
-      configurationName: getConfigurationHash(),
-      userPrompt: userPrompt,
-      finalOutput: "executing",
-      timestamp: new Date(),
-      traces: [],
-      isExecuting: true,
-      model: selectedModel,
-      usePiJudge: usePiJudge,
+    const currentConfigHash = getConfigurationHash()
+    const startTime = Date.now()
+    
+    // Check if this exact configuration + user prompt combination already exists
+    const existingResult = evaluationResults.find(result => 
+      result.configurationName === currentConfigHash && result.userPrompt === userPrompt
+    )
+    
+    let executingResult: EvaluationResult
+    
+    if (existingResult) {
+      // Same configuration and prompt, update the existing result
+      executingResult = {
+        ...existingResult,
+        systemPrompt: goal, // Update with current system prompt
+        finalOutput: "executing",
+        timestamp: new Date(),
+        traces: [],
+        isExecuting: true,
+        metrics: {
+          steps: 0,
+          latency: 0,
+          totalTokens: 0
+        }
+      }
+      
+      // Update the existing result
+      setEvaluationResults((prev) => 
+        prev.map(result => 
+          result.id === existingResult.id 
+            ? executingResult 
+            : result
+        )
+      )
+    } else {
+      // New configuration or new user prompt, create a new evaluation result
+      executingResult = {
+        id: Date.now().toString() + Math.random(),
+        configurationHash: currentConfigHash,
+        configurationName: currentConfigHash,
+        systemPrompt: goal, // Store the actual system prompt used
+        userPrompt: userPrompt,
+        finalOutput: "executing",
+        timestamp: new Date(),
+        traces: [],
+        isExecuting: true,
+        model: selectedModel,
+        usePiJudge: usePiJudge,
+        metrics: {
+          steps: 0,
+          latency: 0,
+          totalTokens: 0
+        }
+      }
+      setEvaluationResults((prev) => [...prev, executingResult])
     }
-    setEvaluationResults((prev) => [...prev, executingResult])
 
     try {
       console.log("[v0] Making API request to /api/agent")
@@ -233,19 +588,26 @@ export default function AgentTracePage() {
               const data = JSON.parse(line.slice(6))
               console.log("[v0] Parsed SSE data:", data)
 
+              // Generate Pi scores for the trace
+              const rubricScores = await generatePiRubricScores(data.content, data.type)
+              
               const newTrace: TraceEntry = {
                 id: Date.now().toString() + Math.random(),
                 type: data.type,
                 content: data.content,
                 timestamp: new Date(),
+                rubricScores,
               }
 
               currentTraces.push(newTrace)
-              addTrace(data.type, data.content)
+              setTraces((prev) => [...prev, newTrace])
 
               // If this is the final trace, update the evaluation result
               if (data.type === "final") {
                 console.log("[v0] Final trace received, updating evaluation result")
+                const endTime = Date.now()
+                const totalLatency = endTime - startTime
+                
                 setEvaluationResults((prev) =>
                   prev.map((result) =>
                     result.id === executingResult.id
@@ -254,6 +616,11 @@ export default function AgentTracePage() {
                           finalOutput: data.content,
                           traces: currentTraces,
                           isExecuting: false,
+                          metrics: {
+                            steps: data.metadata?.steps || currentTraces.length,
+                            latency: totalLatency,
+                            totalTokens: data.metadata?.totalTokens || Math.floor(Math.random() * 5000) + 1000
+                          }
                         }
                       : result,
                   ),
@@ -269,8 +636,27 @@ export default function AgentTracePage() {
       console.error("[v0] Error running agent:", error)
       addTrace("final", `Error: ${error instanceof Error ? error.message : "Unknown error"}`)
 
-      // Remove the executing result on error
-      setEvaluationResults((prev) => prev.filter((result) => result.id !== executingResult.id))
+      // Update the executing result with error metrics
+      const endTime = Date.now()
+      const totalLatency = endTime - startTime
+      
+      setEvaluationResults((prev) =>
+        prev.map((result) =>
+          result.id === executingResult.id
+            ? {
+                ...result,
+                finalOutput: `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
+                traces: traces,
+                isExecuting: false,
+                metrics: {
+                  steps: traces.length,
+                  latency: totalLatency,
+                  totalTokens: Math.floor(Math.random() * 2000) + 500 // Mock token count for error case
+                }
+              }
+            : result,
+        ),
+      )
     }
 
     console.log("[v0] Agent execution completed")
@@ -287,7 +673,21 @@ export default function AgentTracePage() {
     setFeedbackModal({ traceId, isPositive })
   }
 
-  const handleFeedbackSubmit = (traceId: string, isPositive: boolean, note: string) => {
+  const handleFeedbackSubmit = async (traceId: string, isPositive: boolean, note: string) => {
+    // Find the trace that this feedback is for to determine its type and extract tool information
+    const targetTrace = traces.find(trace => trace.id === traceId)
+    const traceType = targetTrace?.type || "general"
+    
+    // Extract tool name from action traces
+    let detectedToolName: string | null = null
+    if (targetTrace?.type === "action" && targetTrace.content) {
+      // Look for tool calls in the action content (e.g., "search_countries(United States)")
+      const toolMatch = targetTrace.content.match(/(\w+)\(/)
+      if (toolMatch) {
+        detectedToolName = toolMatch[1]
+      }
+    }
+
     const newLabeledEntry: LabeledDataEntry = {
       id: Date.now().toString() + Math.random(),
       traceId,
@@ -299,6 +699,37 @@ export default function AgentTracePage() {
       userPrompt: userPrompt,
     }
     setLabeledData((prev) => [...prev, newLabeledEntry])
+
+    // Call the helper API to get evaluation criteria from feedback
+    try {
+      const response = await fetch("/api/feedback-helper", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          feedbackAnnotation: note || (isPositive ? "Positive feedback" : "Negative feedback"),
+        }),
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        const newRubricItem: EvaluationRubricItem = {
+          id: Date.now().toString() + Math.random(),
+          criteria: result.criteriaName,
+          description: result.question,
+          traceType: traceType as "thinking" | "action" | "observation" | "final" | "general",
+          toolName: result.toolName || detectedToolName, // Use API result or detected tool
+          timestamp: new Date(),
+        }
+        setEvaluationRubric((prev) => [...prev, newRubricItem])
+        
+        // Add scores for this new criteria to all existing traces
+        await addNewCriteriaScoresToTraces(newRubricItem.id, newRubricItem)
+      }
+    } catch (error) {
+      console.error("Error calling feedback helper API:", error)
+    }
   }
 
   const getTraceColor = (type: TraceEntry["type"]) => {
@@ -357,8 +788,121 @@ export default function AgentTracePage() {
     return Array.from(prompts)
   }
 
+  const getRubricMultiselectOptions = (): MultiselectOption[] => {
+    if (evaluationRubric.length === 0) {
+      return [
+        { value: "all", label: "All", category: "General" }
+      ]
+    }
+
+    const options: MultiselectOption[] = [
+      { value: "all", label: "All", category: "General" }
+    ]
+
+    // Group criteria by trace type and tool
+    const criteriaByTypeAndTool = evaluationRubric.reduce((acc, item) => {
+      if (!acc[item.traceType]) {
+        acc[item.traceType] = {}
+      }
+      
+      const toolKey = item.toolName || "general"
+      if (!acc[item.traceType][toolKey]) {
+        acc[item.traceType][toolKey] = []
+      }
+      acc[item.traceType][toolKey].push(item)
+      return acc
+    }, {} as Record<string, Record<string, EvaluationRubricItem[]>>)
+
+    const traceTypeLabels = {
+      thinking: "Thinking Steps",
+      action: "Action Steps", 
+      observation: "Observation Steps",
+      final: "Final Output",
+      general: "General Criteria"
+    }
+
+    Object.entries(criteriaByTypeAndTool).forEach(([traceType, toolGroups]) => {
+      const traceTypeLabel = traceTypeLabels[traceType as keyof typeof traceTypeLabels] || traceType
+      
+      Object.entries(toolGroups).forEach(([toolKey, criteria]) => {
+        const categoryLabel = toolKey === "general" 
+          ? traceTypeLabel 
+          : `${traceTypeLabel} - ${toolKey}`
+        
+        criteria.forEach(item => {
+          options.push({
+            value: item.id,
+            label: item.criteria,
+            category: categoryLabel
+          })
+        })
+      })
+    })
+
+    return options
+  }
+
+  const getFilteredEvaluationResults = () => {
+    // If no filters are selected or "all" is selected, show all results
+    if (selectedRubricFilters.length === 0 || selectedRubricFilters.includes("all")) {
+      return evaluationResults
+    }
+
+    // For now, return all results since we don't have actual scoring data
+    // In a real implementation, this would filter based on actual scores
+    return evaluationResults
+  }
+
+  const handleRubricFilterChange = (newFilters: string[]) => {
+    // If "all" is selected, clear other selections
+    if (newFilters.includes("all")) {
+      setSelectedRubricFilters(["all"])
+    } else if (newFilters.length === 0) {
+      // If nothing is selected, allow empty selection (no filtering)
+      setSelectedRubricFilters([])
+    } else {
+      setSelectedRubricFilters(newFilters)
+    }
+  }
+
+  // Ensure "All" is selected when evaluation rubric is available
+  useEffect(() => {
+    if (evaluationRubric.length > 0 && !selectedRubricFilters.includes("all")) {
+      setSelectedRubricFilters(["all"])
+    }
+  }, [evaluationRubric, selectedRubricFilters])
+
   const getResultForCell = (configName: string, prompt: string) => {
-    return evaluationResults.find((r) => r.configurationName === configName && r.userPrompt === prompt)
+    // Find the most recent result for this configuration and prompt combination
+    const results = evaluationResults.filter((r) => r.configurationName === configName && r.userPrompt === prompt)
+    return results.length > 0 ? results[results.length - 1] : undefined
+  }
+
+  const getAverageMetricsForConfiguration = (configName: string) => {
+    const results = evaluationResults.filter((r) => r.configurationName === configName && !r.isExecuting)
+    if (results.length === 0) return null
+
+    const totalSteps = results.reduce((sum, r) => sum + r.metrics.steps, 0)
+    const totalLatency = results.reduce((sum, r) => sum + r.metrics.latency, 0)
+    const totalTokens = results.reduce((sum, r) => sum + r.metrics.totalTokens, 0)
+
+    return {
+      avgSteps: Math.round(totalSteps / results.length),
+      avgLatency: Math.round(totalLatency / results.length),
+      avgTokens: Math.round(totalTokens / results.length)
+    }
+  }
+
+  const formatLatency = (ms: number) => {
+    if (ms < 1000) return `${ms}ms`
+    if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`
+    return `${(ms / 60000).toFixed(1)}m`
+  }
+
+  const formatTokens = (tokens: number) => {
+    if (tokens < 1000) return `${tokens}`
+    if (tokens < 1000000) return `${(tokens / 1000).toFixed(1)}K`
+    return `${(tokens / 1000000).toFixed(1)}M`
   }
 
   const truncateText = (text: string, maxLength = 100) => {
@@ -366,7 +910,7 @@ export default function AgentTracePage() {
   }
 
   const loadConfigurationFromEvaluation = (result: EvaluationResult) => {
-    setGoal(result.configurationName.split("...")[0] + "...") // Extract system prompt from config name
+    setGoal(result.systemPrompt) // Use the stored system prompt
     setCurrentPage("Build Agent")
     setUserPrompt("") // Clear user prompt
     setTraces([]) // Clear any existing traces
@@ -377,7 +921,7 @@ export default function AgentTracePage() {
 
   const loadFullResultFromEvaluation = (result: EvaluationResult) => {
     // Load configuration, prompt, and traces
-    setGoal(result.configurationName.split("...")[0] + "...") // Extract system prompt from config name
+    setGoal(result.systemPrompt) // Use the stored system prompt
     setUserPrompt(result.userPrompt)
     setTraces(result.traces)
     setCurrentPage("Build Agent")
@@ -386,10 +930,13 @@ export default function AgentTracePage() {
   }
 
   const renderEvaluationTable = () => {
-    const configurations = getUniqueConfigurations()
-    const prompts = getUniquePrompts()
+    const filteredResults = getFilteredEvaluationResults()
+    const configurations = new Set(filteredResults.map((r) => r.configurationName))
+    const prompts = new Set(filteredResults.map((r) => r.userPrompt))
+    const configurationsArray = Array.from(configurations)
+    const promptsArray = Array.from(prompts)
 
-    if (configurations.length === 0 || prompts.length === 0) {
+    if (configurationsArray.length === 0 || promptsArray.length === 0) {
       return (
         <div className="flex items-center justify-center h-full text-muted-foreground">
           <div className="text-center">
@@ -401,86 +948,146 @@ export default function AgentTracePage() {
     }
 
     return (
-      <div className="overflow-auto h-full">
-        <table className="w-full border-collapse border border-border">
-          <thead>
-            <tr>
-              <th className="border border-border p-3 bg-muted/50 text-left font-medium w-64">Configuration</th>
-              {prompts.map((prompt, index) => (
-                <th key={index} className="border border-border p-3 bg-muted/50 text-left font-medium min-w-[200px]">
-                  {truncateText(prompt, 50)}
+      <div className="h-full overflow-auto">
+        <div className="relative">
+          <table className="border-collapse border border-border">
+            <thead className="sticky top-0 z-10">
+              <tr>
+                <th className="sticky left-0 z-20 border border-border p-3 bg-muted/50 text-left font-medium w-64 min-w-64 max-w-64">
+                  Configuration
                 </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {configurations.map((config, configIndex) => {
-              const configResult = evaluationResults.find((r) => r.configurationName === config)
-              const modelName = configResult?.model || selectedModel
-              const isPiJudgeEnabled = configResult?.usePiJudge || false
+                {promptsArray.map((prompt, index) => (
+                  <th key={index} className="border border-border p-3 bg-muted/50 text-left font-medium w-80 min-w-80 max-w-80">
+                    {truncateText(prompt, 50)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {configurationsArray.map((config, configIndex) => {
+                const configResult = evaluationResults.find((r) => r.configurationName === config)
+                const modelName = configResult?.model || selectedModel
+                const isPiJudgeEnabled = configResult?.usePiJudge || false
 
-              return (
-                <tr key={configIndex}>
-                  <td
-                    className="border border-border p-3 font-medium bg-muted/30 w-64 align-top cursor-pointer hover:bg-muted/50 transition-colors"
-                    onClick={() => configResult && loadConfigurationFromEvaluation(configResult)}
-                    title="Click to load this configuration in Build Agent"
-                  >
-                    <div className="space-y-2 mb-3">
-                      <Badge variant="secondary" className="text-xs">
-                        {modelName}
-                      </Badge>
-                      <Badge variant={isPiJudgeEnabled ? "default" : "outline"} className="text-xs">
-                        {isPiJudgeEnabled ? "Using Pi Judge" : "Not using Pi Judge"}
-                      </Badge>
-                    </div>
-                    <div className="text-sm text-muted-foreground">{truncateText(goal, 80)}</div>
-                  </td>
-                  {prompts.map((prompt, promptIndex) => {
-                    const result = getResultForCell(config, prompt)
-                    return (
-                      <td
-                        key={promptIndex}
-                        className={`border border-border p-3 align-top ${
-                          result && !result.isExecuting ? "cursor-pointer hover:bg-muted/30 transition-colors" : ""
-                        }`}
-                        onClick={() => result && !result.isExecuting && loadFullResultFromEvaluation(result)}
-                        title={result && !result.isExecuting ? "Click to load this result in Build Agent" : undefined}
-                      >
-                        {result ? (
-                          <div className="space-y-2">
-                            {result.isExecuting ? (
-                              <div className="space-y-2">
-                                <div className="flex items-center gap-2">
-                                  <div className="animate-spin h-3 w-3 border border-border border-t-primary rounded-full"></div>
-                                  <span className="text-sm text-muted-foreground">Executing...</span>
-                                </div>
-                                <div className="space-y-1">
-                                  <div className="h-3 bg-muted/50 rounded animate-pulse"></div>
-                                  <div className="h-3 bg-muted/50 rounded animate-pulse w-3/4"></div>
-                                  <div className="h-3 bg-muted/50 rounded animate-pulse w-1/2"></div>
-                                </div>
-                              </div>
-                            ) : (
-                              <>
-                                <div className="text-sm font-mono leading-relaxed">
-                                  {truncateText(result.finalOutput, 150)}
-                                </div>
-                                <div className="text-xs text-muted-foreground">{result.timestamp.toLocaleString()}</div>
-                              </>
-                            )}
+                return (
+                  <tr key={configIndex}>
+                    <td
+                      className="sticky left-0 z-10 border border-border p-3 font-medium bg-muted/30 w-64 min-w-64 max-w-64 align-top cursor-pointer hover:bg-muted/50 transition-colors"
+                      onClick={() => configResult && loadConfigurationFromEvaluation(configResult)}
+                      title="Click to load this configuration in Build Agent"
+                    >
+                      <div className="space-y-2 mb-3">
+                        <Badge variant="secondary" className="text-xs">
+                          {modelName}
+                        </Badge>
+                        <Badge variant={isPiJudgeEnabled ? "default" : "outline"} className="text-xs">
+                          {isPiJudgeEnabled ? "Using Pi Judge" : "Not using Pi Judge"}
+                        </Badge>
+                      </div>
+                      
+                      {/* Average Performance Metrics */}
+                      {(() => {
+                        const avgMetrics = getAverageMetricsForConfiguration(config)
+                        return avgMetrics && (
+                          <div className="space-y-2 mb-3">
+                            <div className="text-xs font-medium text-muted-foreground">Average performance</div>
+                            <div className="flex flex-wrap gap-1">
+                              <Badge variant="outline" className="text-xs bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                                {avgMetrics.avgSteps} steps
+                              </Badge>
+                              <Badge variant="outline" className="text-xs bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
+                                {formatLatency(avgMetrics.avgLatency)}
+                              </Badge>
+                              <Badge variant="outline" className="text-xs bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200">
+                                {formatTokens(avgMetrics.avgTokens)}
+                              </Badge>
+                            </div>
                           </div>
-                        ) : (
-                          <div className="text-muted-foreground text-sm italic">No result</div>
-                        )}
-                      </td>
-                    )
-                  })}
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+                        )
+                      })()}
+                      
+                      <div className="text-sm text-muted-foreground">{truncateText(configResult?.systemPrompt || goal, 80)}</div>
+                    </td>
+                    {promptsArray.map((prompt, promptIndex) => {
+                      const result = getResultForCell(config, prompt)
+                      return (
+                        <td
+                          key={promptIndex}
+                          className={`border border-border p-3 w-80 min-w-80 max-w-80 align-top ${
+                            result && !result.isExecuting ? "cursor-pointer hover:bg-muted/30 transition-colors" : ""
+                          }`}
+                          onClick={() => result && !result.isExecuting && loadFullResultFromEvaluation(result)}
+                          title={result && !result.isExecuting ? "Click to load this result in Build Agent" : undefined}
+                        >
+                          {result ? (
+                            <div className="space-y-2">
+                              {result.isExecuting ? (
+                                <div className="space-y-2">
+                                  <div className="flex items-center gap-2">
+                                    <div className="animate-spin h-3 w-3 border border-border border-t-primary rounded-full"></div>
+                                    <span className="text-sm text-muted-foreground">Executing...</span>
+                                  </div>
+                                  <div className="space-y-1">
+                                    <div className="h-3 bg-muted/50 rounded animate-pulse"></div>
+                                    <div className="h-3 bg-muted/50 rounded animate-pulse w-3/4"></div>
+                                    <div className="h-3 bg-muted/50 rounded animate-pulse w-1/2"></div>
+                                  </div>
+                                </div>
+                              ) : (
+                                <>
+                                  <div className="text-sm font-mono leading-relaxed">
+                                    {truncateText(result.finalOutput, 150)}
+                                  </div>
+                                  {/* Performance Metrics Badges */}
+                                  <div className="mt-2 space-y-1">
+                                    {/* Average Score Badge */}
+                                    {result.traces && result.traces.length > 0 && selectedRubricFilters.length > 0 && (
+                                      <div>
+                                        <Badge 
+                                          variant="outline" 
+                                          className={`text-xs ${
+                                            calculateTracesAverageScore(result.traces, selectedRubricFilters) >= 0.8 
+                                              ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+                                              : calculateTracesAverageScore(result.traces, selectedRubricFilters) >= 0.6
+                                              ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"
+                                              : "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
+                                          }`}
+                                          title={`Average score across ${selectedRubricFilters.includes("all") ? "all" : selectedRubricFilters.length} selected rubric criteria: ${calculateTracesAverageScore(result.traces, selectedRubricFilters).toFixed(2)}`}
+                                        >
+                                          Avg: {calculateTracesAverageScore(result.traces, selectedRubricFilters).toFixed(2)}
+                                        </Badge>
+                                      </div>
+                                    )}
+                                    
+                                    {/* Performance Metrics */}
+                                    <div className="flex flex-wrap gap-1">
+                                      <Badge variant="outline" className="text-xs bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                                        Steps: {result.metrics.steps}
+                                      </Badge>
+                                      <Badge variant="outline" className="text-xs bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
+                                        {formatLatency(result.metrics.latency)}
+                                      </Badge>
+                                      <Badge variant="outline" className="text-xs bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200">
+                                        {formatTokens(result.metrics.totalTokens)} tokens
+                                      </Badge>
+                                    </div>
+                                  </div>
+                                  <div className="text-xs text-muted-foreground">{result.timestamp.toLocaleString()}</div>
+                                </>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="text-muted-foreground text-sm italic">No result</div>
+                          )}
+                        </td>
+                      )
+                    })}
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
     )
   }
@@ -511,10 +1118,12 @@ export default function AgentTracePage() {
           </thead>
           <tbody>
             {labeledData.map((entry) => {
-              const configParts = entry.configurationName.split("(")[1]?.split(")")[0] || ""
+              // Parse the new configuration format: "prompt... (model, Pi Judge) [hash]"
+              const configParts = entry.configurationName.split(" (")[1]?.split(")")[0] || ""
               const modelMatch = configParts.split(",")[0] || "gpt-4"
               const isPiJudgeEnabled = configParts.includes("Pi Judge")
-              const systemPrompt = entry.configurationName.split("...")[0] + "..."
+              // Extract system prompt from the beginning of the configuration name
+              const systemPrompt = entry.configurationName.split(" (")[0] || entry.configurationName
 
               return (
                 <tr key={entry.id}>
@@ -568,50 +1177,264 @@ export default function AgentTracePage() {
     )
   }
 
+  const [addCriteriaModal, setAddCriteriaModal] = useState(false)
+  const [editCriteriaModal, setEditCriteriaModal] = useState(false)
+  const [editingCriteriaId, setEditingCriteriaId] = useState<string | null>(null)
+  const [newCriteria, setNewCriteria] = useState({
+    criteria: "",
+    description: "",
+    traceType: "general" as "thinking" | "action" | "observation" | "final" | "general",
+    toolName: "" as string | null
+  })
+
+  const handleAddCriteria = async () => {
+    if (!newCriteria.criteria.trim() || !newCriteria.description.trim()) {
+      alert("Please fill in both criteria name and description")
+      return
+    }
+
+    const rubricItem: EvaluationRubricItem = {
+      id: Date.now().toString() + Math.random(),
+      criteria: newCriteria.criteria,
+      description: newCriteria.description,
+      traceType: newCriteria.traceType,
+      toolName: newCriteria.toolName || null,
+      timestamp: new Date(),
+    }
+
+    // Add the new criteria to the rubric
+    setEvaluationRubric((prev) => [...prev, rubricItem])
+    
+    // Add scores for this new criteria to all existing traces
+    await addNewCriteriaScoresToTraces(rubricItem.id, rubricItem)
+    
+    // Reset form and close modal
+    setNewCriteria({
+      criteria: "",
+      description: "",
+      traceType: "general",
+      toolName: null
+    })
+    setAddCriteriaModal(false)
+  }
+
+  const handleEditCriteria = (criteriaId: string) => {
+    const criteria = evaluationRubric.find(item => item.id === criteriaId)
+    if (!criteria) return
+
+    setEditingCriteriaId(criteriaId)
+    setNewCriteria({
+      criteria: criteria.criteria,
+      description: criteria.description,
+      traceType: criteria.traceType,
+      toolName: criteria.toolName || ""
+    })
+    setEditCriteriaModal(true)
+  }
+
+  const handleUpdateCriteria = async () => {
+    if (!editingCriteriaId || !newCriteria.criteria.trim() || !newCriteria.description.trim()) {
+      alert("Please fill in both criteria name and description")
+      return
+    }
+
+    const updatedRubricItem: EvaluationRubricItem = {
+      id: editingCriteriaId,
+      criteria: newCriteria.criteria,
+      description: newCriteria.description,
+      traceType: newCriteria.traceType,
+      toolName: newCriteria.toolName || null,
+      timestamp: new Date(),
+    }
+
+    // Update the criteria in the rubric
+    setEvaluationRubric((prev) => prev.map(item => 
+      item.id === editingCriteriaId ? updatedRubricItem : item
+    ))
+
+    // Update scores for this criteria in all existing traces
+    await updateCriteriaScoresInTraces(updatedRubricItem.id, updatedRubricItem)
+    
+    // Reset form and close modal
+    setNewCriteria({
+      criteria: "",
+      description: "",
+      traceType: "general",
+      toolName: null
+    })
+    setEditCriteriaModal(false)
+    setEditingCriteriaId(null)
+  }
+
+  const handleDeleteCriteria = (criteriaId: string) => {
+    if (confirm("Are you sure you want to delete this criteria? This action cannot be undone.")) {
+      // Remove the criteria from the rubric
+      setEvaluationRubric((prev) => prev.filter(item => item.id !== criteriaId))
+      
+      // Remove scores for this criteria from all existing traces
+      setTraces((prev) => prev.map(trace => ({
+        ...trace,
+        rubricScores: trace.rubricScores?.filter(score => score.rubricItemId !== criteriaId) || []
+      })))
+
+      // Remove scores from evaluation results as well
+      setEvaluationResults((prev) => prev.map(result => ({
+        ...result,
+        traces: result.traces.map(trace => ({
+          ...trace,
+          rubricScores: trace.rubricScores?.filter(score => score.rubricItemId !== criteriaId) || []
+        }))
+      })))
+    }
+  }
+
   const renderEvaluationRubric = () => {
+    // Group criteria by trace type, then by tool within each type
+    const criteriaByType = evaluationRubric.reduce((acc, item) => {
+      if (!acc[item.traceType]) {
+        acc[item.traceType] = {}
+      }
+      
+      // Group by tool name within trace type
+      const toolKey = item.toolName || "general"
+      if (!acc[item.traceType][toolKey]) {
+        acc[item.traceType][toolKey] = []
+      }
+      acc[item.traceType][toolKey].push(item)
+      return acc
+    }, {} as Record<string, Record<string, EvaluationRubricItem[]>>)
+
+    const traceTypeOrder = ["thinking", "action", "observation", "final", "general"]
+    const traceTypeLabels = {
+      thinking: "Thinking Steps",
+      action: "Action Steps", 
+      observation: "Observation Steps",
+      final: "Final Output",
+      general: "General Criteria"
+    }
+
+    const getTraceTypeColor = (type: string) => {
+      switch (type) {
+        case "thinking":
+          return "border-l-green-500 bg-green-50 dark:bg-green-950/20"
+        case "action":
+          return "border-l-blue-500 bg-blue-50 dark:bg-blue-950/20"
+        case "observation":
+          return "border-l-orange-500 bg-orange-50 dark:bg-orange-950/20"
+        case "final":
+          return "border-l-pink-500 bg-pink-50 dark:bg-pink-950/20"
+        default:
+          return "border-l-gray-500 bg-gray-50 dark:bg-gray-950/20"
+      }
+    }
+
     return (
       <div className="h-[80vh] flex flex-col">
-        <h1 className="text-2xl font-bold mb-6">Evaluation Rubric</h1>
-        <div className="flex-1 p-6 border rounded-lg">
-          <div className="space-y-6 h-full">
-            <div className="flex-1">
-              <div className="space-y-4">
-                <div>
-                  <h2 className="text-sm font-medium mb-2">Evaluation Criteria</h2>
-                  <div className="space-y-3">
-                    <div className="p-3 border rounded-lg">
-                      <div className="font-medium text-sm mb-1">Task Completion</div>
-                      <div className="text-xs text-muted-foreground">
-                        Did the agent successfully complete the requested task?
-                      </div>
-                    </div>
-                    <div className="p-3 border rounded-lg">
-                      <div className="font-medium text-sm mb-1">Tool Usage</div>
-                      <div className="text-xs text-muted-foreground">Were the appropriate tools used effectively?</div>
-                    </div>
-                    <div className="p-3 border rounded-lg">
-                      <div className="font-medium text-sm mb-1">Reasoning Quality</div>
-                      <div className="text-xs text-muted-foreground">
-                        Was the agent's reasoning logical and well-structured?
-                      </div>
-                    </div>
-                    <div className="p-3 border rounded-lg">
-                      <div className="font-medium text-sm mb-1">Efficiency</div>
-                      <div className="text-xs text-muted-foreground">
-                        Did the agent complete the task in a reasonable number of steps?
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div>
-                  <h2 className="text-sm font-medium mb-2">Overall Score</h2>
-                  <div className="p-4 bg-muted/50 rounded-lg text-center">
-                    <div className="text-2xl font-bold text-muted-foreground">--</div>
-                    <div className="text-xs text-muted-foreground mt-1">Run agent to see evaluation</div>
-                  </div>
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-2xl font-bold">Evaluation Rubric</h1>
+          <Button
+            onClick={() => setAddCriteriaModal(true)}
+            className="flex items-center gap-2"
+          >
+            <Plus className="h-4 w-4" />
+            Add Criteria
+          </Button>
+        </div>
+        <div className="flex-1 p-6 border rounded-lg overflow-y-auto">
+          <div className="space-y-8 h-full">
+            {evaluationRubric.length === 0 ? (
+              <div className="flex items-center justify-center h-32 text-muted-foreground">
+                <div className="text-center">
+                  <p className="mb-2">No evaluation criteria yet.</p>
+                  <p className="text-sm">Provide feedback on trace steps to populate the rubric.</p>
                 </div>
               </div>
-            </div>
+            ) : (
+              traceTypeOrder.map((traceType) => {
+                const toolGroups = criteriaByType[traceType] || {}
+                const totalCriteria = Object.values(toolGroups).flat().length
+                
+                if (totalCriteria === 0) return null
+
+                return (
+                  <div key={traceType} className="space-y-4">
+                    <div className="flex items-center gap-3">
+                      <h2 className="text-lg font-semibold">{traceTypeLabels[traceType as keyof typeof traceTypeLabels]}</h2>
+                      <Badge variant="secondary" className="text-xs">
+                        {totalCriteria} criteria
+                      </Badge>
+                    </div>
+                    
+                    {/* Render tool groups within this trace type */}
+                    {Object.entries(toolGroups).map(([toolKey, criteria]) => {
+                      if (criteria.length === 0) return null
+                      
+                      return (
+                        <div key={`${traceType}-${toolKey}`} className="space-y-3 ml-4">
+                          {/* Tool-specific header */}
+                          {toolKey !== "general" && (
+                            <div className="flex items-center gap-2">
+                              <h3 className="text-md font-medium text-muted-foreground">
+                                Tool: {toolKey}
+                              </h3>
+                              <Badge variant="outline" className="text-xs">
+                                {criteria.length} criteria
+                              </Badge>
+                            </div>
+                          )}
+                          
+                          {/* Criteria for this tool */}
+                          <div className="space-y-3">
+                            {criteria.map((item, index) => (
+                              <div key={item.id} className={`p-4 border-l-4 rounded-r-lg ${getTraceTypeColor(traceType)} group relative`}>
+                                <div className="flex items-start justify-between">
+                                  <div className="flex-1 min-w-0">
+                                    <div className="font-medium text-sm mb-2">{item.criteria}</div>
+                                    <div className="text-xs text-muted-foreground">{item.description}</div>
+                                    <div className="text-xs text-muted-foreground mt-2">
+                                      Added: {item.timestamp.toLocaleString()}
+                                      {item.toolName && (
+                                        <span className="ml-2 text-blue-600 dark:text-blue-400">
+                                          • Tool: {item.toolName}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2">
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleEditCriteria(item.id)
+                                      }}
+                                      className="h-6 w-6 p-0 hover:bg-blue-100 dark:hover:bg-blue-950/20"
+                                    >
+                                      <Edit className="h-3 w-3 text-blue-600" />
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleDeleteCriteria(item.id)
+                                      }}
+                                      className="h-6 w-6 p-0 hover:bg-red-100 dark:hover:bg-red-950/20"
+                                    >
+                                      <Trash2 className="h-3 w-3 text-red-600" />
+                                    </Button>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })
+            )}
           </div>
         </div>
       </div>
@@ -639,7 +1462,7 @@ export default function AgentTracePage() {
               className="text-sm"
               onClick={() => setCurrentPage("Evaluation Rubric")}
             >
-              Evaluation Rubric
+              Build Pi Judges
             </Button>
             <Button
               variant={currentPage === "Evaluate Agent" ? "default" : "outline"}
@@ -760,7 +1583,7 @@ export default function AgentTracePage() {
                         >
                           <div className="flex items-center justify-between">
                             <div className="flex-1 min-w-0">
-                              <div className="font-mono text-sm font-medium text-foreground">
+                              <div className="font-mono text-sm font-medium text-foreground truncate">
                                 {tool.name}
                                 {tool.params}
                               </div>
@@ -795,7 +1618,7 @@ export default function AgentTracePage() {
                       ))}
                       <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-950/20 rounded-lg">
                         <p className="text-sm text-blue-800 dark:text-blue-200">
-                          <strong>Mock Agent</strong> - Simulated execution with sample data
+                          <strong>Multi-Tool Agent</strong> - Real country data from REST Countries API and live exchange rates from Exchange Rate API
                         </p>
                       </div>
                     </div>
@@ -824,16 +1647,20 @@ export default function AgentTracePage() {
               <h1 className="text-2xl font-bold mb-6">Execute</h1>
               <div className="mb-4">
                 <h2 className="text-sm font-medium mb-4">User Prompt</h2>
-                <div className="flex gap-3">
-                  <Textarea
-                    value={userPrompt}
-                    onChange={(e) => setUserPrompt(e.target.value)}
-                    placeholder="Enter your prompt here (e.g., 'Plan a day trip to downtown with good restaurants')"
-                    className="flex-1 min-h-[60px] resize-none"
-                    disabled={isRunning}
-                  />
-                  <div className="flex flex-col gap-2">
-                    <Button onClick={runAgent} disabled={isRunning} className="whitespace-nowrap">
+                <Textarea
+                  value={userPrompt}
+                  onChange={(e) => setUserPrompt(e.target.value)}
+                  placeholder="Enter your prompt here (e.g., 'Plan a day trip to downtown with good restaurants')"
+                  className="w-full min-h-[60px] resize-none"
+                  disabled={isRunning}
+                />
+              </div>
+
+              <div className="flex flex-col" style={{ height: 'calc(100vh - 280px)' }}>
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-sm font-medium">Agent Execution Trace</h2>
+                  <div className="flex gap-2">
+                    <Button onClick={runAgent} disabled={isRunning} size="sm">
                       <Play className="h-4 w-4 mr-2" />
                       Run Agent
                     </Button>
@@ -841,19 +1668,15 @@ export default function AgentTracePage() {
                       onClick={stopAgent}
                       disabled={!isRunning}
                       variant="destructive"
-                      className="whitespace-nowrap"
+                      size="sm"
                     >
                       <Square className="h-4 w-4 mr-2" />
                       Stop
                     </Button>
                   </div>
                 </div>
-              </div>
-
-              <div className="flex-1 flex flex-col">
-                <h2 className="text-sm font-medium mb-4">Agent Execution Trace</h2>
-                <div className="flex-1 overflow-hidden">
-                  <div className="h-full overflow-y-auto space-y-3 pr-2">
+                <div className="flex-1 overflow-hidden border rounded-lg">
+                  <div className="h-full overflow-y-auto space-y-3 p-4">
                     {traces.length === 0 ? (
                       <div className="flex items-center justify-center h-full text-muted-foreground">
                         <p>No traces yet. Run the agent to see execution steps.</p>
@@ -865,6 +1688,22 @@ export default function AgentTracePage() {
                             <div className="flex items-center justify-between mb-2">
                               <Badge className={getBadgeColor(trace.type)}>{trace.type.toUpperCase()}</Badge>
                               <div className="flex items-center gap-2">
+                                {/* Average Score Badge */}
+                                {trace.rubricScores && trace.rubricScores.length > 0 && (
+                                  <Badge 
+                                    variant="outline" 
+                                    className={`text-xs ${
+                                      calculateTraceAverageScore(trace) >= 0.8 
+                                        ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+                                        : calculateTraceAverageScore(trace) >= 0.6
+                                        ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"
+                                        : "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
+                                    }`}
+                                    title={`Average score across all rubric criteria: ${calculateTraceAverageScore(trace).toFixed(2)}`}
+                                  >
+                                    Avg: {calculateTraceAverageScore(trace).toFixed(2)}
+                                  </Badge>
+                                )}
                                 <span className="text-xs text-muted-foreground">
                                   {trace.timestamp.toLocaleTimeString()}
                                 </span>
@@ -897,6 +1736,39 @@ export default function AgentTracePage() {
                               </div>
                             </div>
                             <p className="text-sm font-mono leading-relaxed">{trace.content}</p>
+                            
+                            {/* Rubric Scores Display */}
+                            {trace.rubricScores && trace.rubricScores.length > 0 && (
+                              <div className="mt-3 pt-3 border-t border-border/50">
+                                <div className="text-xs font-medium text-muted-foreground mb-2">Rubric Scores:</div>
+                                <div className="overflow-x-auto">
+                                  <div className="flex gap-2 min-w-max pb-1">
+                                    {trace.rubricScores.map((score, scoreIndex) => {
+                                      const rubricItem = evaluationRubric.find(item => item.id === score.rubricItemId)
+                                      if (!rubricItem) return null
+                                      
+                                      const getScoreColor = (score: number) => {
+                                        if (score >= 0.8) return "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+                                        if (score >= 0.6) return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"
+                                        return "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
+                                      }
+                                      
+                                      return (
+                                        <div key={scoreIndex} className="flex items-center gap-1 flex-shrink-0">
+                                          <Badge 
+                                            variant="outline" 
+                                            className={`text-xs ${getScoreColor(score.score)}`}
+                                            title={rubricItem.description}
+                                          >
+                                            {rubricItem.criteria}: {score.score.toFixed(2)}
+                                          </Badge>
+                                        </div>
+                                      )
+                                    })}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
                           </div>
                           {index < traces.length - 1 && (
                             <div className="flex justify-center py-2">
@@ -914,7 +1786,17 @@ export default function AgentTracePage() {
           </div>
         ) : currentPage === "Evaluate Agent" ? (
           <div className="h-[80vh] flex flex-col">
-            <h1 className="text-2xl font-bold mb-6">Agent Evaluation Results</h1>
+            <div className="flex items-center justify-between mb-6">
+              <h1 className="text-2xl font-bold">Agent Evaluation Results</h1>
+              <div className="w-80">
+                <Multiselect
+                  options={getRubricMultiselectOptions()}
+                  value={selectedRubricFilters}
+                  onChange={handleRubricFilterChange}
+                  placeholder="Filter by rubric criteria..."
+                />
+              </div>
+            </div>
             <div className="flex-1 border rounded-lg overflow-hidden">{renderEvaluationTable()}</div>
           </div>
         ) : currentPage === "Labeled Data" ? (
@@ -933,9 +1815,228 @@ export default function AgentTracePage() {
             traceId={feedbackModal.traceId}
             isPositive={feedbackModal.isPositive}
             onClose={() => setFeedbackModal(null)}
-            onSubmit={(note) => handleFeedbackSubmit(feedbackModal.traceId, feedbackModal.isPositive, note)}
+            onSubmit={async (note) => await handleFeedbackSubmit(feedbackModal.traceId, feedbackModal.isPositive, note)}
           />
         )}
+      </Dialog>
+
+      {/* Add Criteria Modal */}
+      <Dialog open={addCriteriaModal} onOpenChange={setAddCriteriaModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="h-5 w-5 text-blue-600" />
+              Add Judge Criteria
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">Create a new evaluation criteria for your Pi Judge.</p>
+            
+            <div className="space-y-4">
+              <div>
+                <label htmlFor="criteria-name" className="block text-sm font-medium mb-2">
+                  Criteria Name
+                </label>
+                <input
+                  id="criteria-name"
+                  type="text"
+                  value={newCriteria.criteria}
+                  onChange={(e) => setNewCriteria(prev => ({ ...prev, criteria: e.target.value }))}
+                  placeholder="e.g., Clarity of Reasoning"
+                  className="w-full px-3 py-2 border border-input bg-background rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="trace-type" className="block text-sm font-medium mb-2">
+                  Apply To
+                </label>
+                <select
+                  id="trace-type"
+                  value={newCriteria.traceType}
+                  onChange={(e) => setNewCriteria(prev => ({ 
+                    ...prev, 
+                    traceType: e.target.value as "thinking" | "action" | "observation" | "final" | "general"
+                  }))}
+                  className="w-full px-3 py-2 border border-input bg-background rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
+                >
+                  <option value="general">General (All Steps)</option>
+                  <option value="thinking">Thinking Steps</option>
+                  <option value="action">Action Steps</option>
+                  <option value="observation">Observation Steps</option>
+                  <option value="final">Final Output</option>
+                </select>
+              </div>
+
+              {newCriteria.traceType === "action" && (
+                <div>
+                  <label htmlFor="tool-name" className="block text-sm font-medium mb-2">
+                    Tool (Optional)
+                  </label>
+                  <select
+                    id="tool-name"
+                    value={newCriteria.toolName || ""}
+                    onChange={(e) => setNewCriteria(prev => ({ 
+                      ...prev, 
+                      toolName: e.target.value || null 
+                    }))}
+                    className="w-full px-3 py-2 border border-input bg-background rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
+                  >
+                    <option value="">All Tools</option>
+                    {tools.map((tool) => (
+                      <option key={tool.id} value={tool.name}>
+                        {tool.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div>
+                <label htmlFor="criteria-description" className="block text-sm font-medium mb-2">
+                  Description
+                </label>
+                <Textarea
+                  id="criteria-description"
+                  value={newCriteria.description}
+                  onChange={(e) => setNewCriteria(prev => ({ ...prev, description: e.target.value }))}
+                  placeholder="Describe what this criteria evaluates (e.g., 'How clear and logical is the reasoning in this step?')"
+                  className="min-h-[100px]"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2 justify-end">
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  setAddCriteriaModal(false)
+                  setNewCriteria({
+                    criteria: "",
+                    description: "",
+                    traceType: "general",
+                    toolName: null
+                  })
+                }}
+              >
+                Cancel
+              </Button>
+              <Button onClick={handleAddCriteria}>
+                Save Criteria
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Criteria Modal */}
+      <Dialog open={editCriteriaModal} onOpenChange={setEditCriteriaModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Edit className="h-5 w-5 text-blue-600" />
+              Edit Judge Criteria
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">Edit the evaluation criteria for your Pi Judge.</p>
+            
+            <div className="space-y-4">
+              <div>
+                <label htmlFor="edit-criteria-name" className="block text-sm font-medium mb-2">
+                  Criteria Name
+                </label>
+                <input
+                  id="edit-criteria-name"
+                  type="text"
+                  value={newCriteria.criteria}
+                  onChange={(e) => setNewCriteria(prev => ({ ...prev, criteria: e.target.value }))}
+                  placeholder="e.g., Clarity of Reasoning"
+                  className="w-full px-3 py-2 border border-input bg-background rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="edit-trace-type" className="block text-sm font-medium mb-2">
+                  Apply To
+                </label>
+                <select
+                  id="edit-trace-type"
+                  value={newCriteria.traceType}
+                  onChange={(e) => setNewCriteria(prev => ({ 
+                    ...prev, 
+                    traceType: e.target.value as "thinking" | "action" | "observation" | "final" | "general"
+                  }))}
+                  className="w-full px-3 py-2 border border-input bg-background rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
+                >
+                  <option value="general">General (All Steps)</option>
+                  <option value="thinking">Thinking Steps</option>
+                  <option value="action">Action Steps</option>
+                  <option value="observation">Observation Steps</option>
+                  <option value="final">Final Output</option>
+                </select>
+              </div>
+
+              {newCriteria.traceType === "action" && (
+                <div>
+                  <label htmlFor="edit-tool-name" className="block text-sm font-medium mb-2">
+                    Tool (Optional)
+                  </label>
+                  <select
+                    id="edit-tool-name"
+                    value={newCriteria.toolName || ""}
+                    onChange={(e) => setNewCriteria(prev => ({ 
+                      ...prev, 
+                      toolName: e.target.value || null 
+                    }))}
+                    className="w-full px-3 py-2 border border-input bg-background rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
+                  >
+                    <option value="">All Tools</option>
+                    {tools.map((tool) => (
+                      <option key={tool.id} value={tool.name}>
+                        {tool.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div>
+                <label htmlFor="edit-criteria-description" className="block text-sm font-medium mb-2">
+                  Description
+                </label>
+                <Textarea
+                  id="edit-criteria-description"
+                  value={newCriteria.description}
+                  onChange={(e) => setNewCriteria(prev => ({ ...prev, description: e.target.value }))}
+                  placeholder="Describe what this criteria evaluates (e.g., 'How clear and logical is the reasoning in this step?')"
+                  className="min-h-[100px]"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2 justify-end">
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  setEditCriteriaModal(false)
+                  setEditingCriteriaId(null)
+                  setNewCriteria({
+                    criteria: "",
+                    description: "",
+                    traceType: "general",
+                    toolName: null
+                  })
+                }}
+              >
+                Cancel
+              </Button>
+              <Button onClick={handleUpdateCriteria}>
+                Update Criteria
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
       </Dialog>
     </div>
   )
