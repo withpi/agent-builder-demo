@@ -1,11 +1,11 @@
 import { openai } from "@ai-sdk/openai"
 import { generateText } from "ai"
 import type { NextRequest } from "next/server"
-import { scoreLLMOutput } from "@/lib/pi-scoring"
+import { scoreTraceStep, type RubricCriteria } from "@/lib/pi-scoring"
 
 export async function POST(request: NextRequest) {
   try {
-    const { goal, model = "gpt-4o-mini", systemPrompt = "You are a helpful AI assistant." } = await request.json()
+    const { goal, model = "gpt-4o-mini", systemPrompt = "You are a helpful AI assistant.", usePiJudge = false, evaluationRubric = [] } = await request.json()
 
     if (!goal) {
       return Response.json({ error: "Goal is required" }, { status: 400 })
@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
     const stream = new ReadableStream({
       async start(controller) {
         try {
-          await executeAgentWithTools(goal, model, systemPrompt, controller, encoder)
+          await executeAgentWithTools(goal, model, systemPrompt, usePiJudge, evaluationRubric, controller, encoder)
         } catch (error) {
           controller.enqueue(
             encoder.encode(
@@ -48,6 +48,8 @@ async function executeAgentWithTools(
   goal: string,
   model: string,
   systemPrompt: string,
+  usePiJudge: boolean,
+  evaluationRubric: any[],
   controller: ReadableStreamDefaultController,
   encoder: TextEncoder,
 ) {
@@ -63,6 +65,11 @@ async function executeAgentWithTools(
   )
 
   await delay(1000)
+  
+  // Print rubric scores for initial thinking step if PI judge is enabled
+  if (usePiJudge) {
+    await printRubricScores(initialThinking, "thinking", evaluationRubric, controller, encoder)
+  }
   
   let totalTokens = 0
 
@@ -108,9 +115,6 @@ async function executeAgentWithTools(
   while (stepCount < maxSteps) {
     stepCount++
 
-    // Log step start
-    console.log(`\n🚀 Starting step ${stepCount}/${maxSteps}`)
-    console.log(`   Current context: ${currentContext.substring(0, 150)}${currentContext.length > 150 ? '...' : ''}`)
 
     // Send thinking step
     const thinkingContent = `Step ${stepCount}: Analyzing current situation and deciding next action...`
@@ -123,6 +127,11 @@ async function executeAgentWithTools(
       ),
     )
     await delay(800)
+    
+    // Print rubric scores for thinking step if PI judge is enabled
+    if (usePiJudge) {
+      await printRubricScores(thinkingContent, "thinking", evaluationRubric, controller, encoder)
+    }
 
     const promptText = `${systemPrompt}\n\nYou are working towards this goal: "${goal}"\n\nCurrent context: ${currentContext}\n\nAvailable tools:\n- search_countries(query): Search for countries by name and get detailed information including capital, population, region, currencies, languages, and more\n- get_exchange_rates(baseCurrency): Get all exchange rates from a base currency to all supported currencies (defaults to USD)\n- convert_currency_pair(baseCurrency,targetCurrency,amount): Convert between two specific currencies with optional amount calculation\n\nBased on the goal and current context, what should you do next?\n\nRespond in this exact format:\nREASONING: [Your reasoning for what to do next]\nACTION: [Either a tool call like "search_countries(United States)" or "get_exchange_rates(USD)" or "convert_currency_pair(USD,EUR,100)" OR "COMPLETE" if goal is achieved]\n\nIf you believe the goal is complete or cannot be completed, use ACTION: COMPLETE`
 
@@ -159,6 +168,11 @@ async function executeAgentWithTools(
         ),
       )
       await delay(600)
+      
+      // Print rubric scores for reasoning step if PI judge is enabled
+      if (usePiJudge) {
+        await printRubricScores(reasoning, "thinking", evaluationRubric, controller, encoder)
+      }
     }
 
     // Check if complete
@@ -187,11 +201,10 @@ async function executeAgentWithTools(
         ),
       )
       
-      // Log final step completion
-      console.log(`🎯 Final step ${stepCount} completed - Agent execution finished`)
-      console.log(`   Total steps: ${stepCount}`)
-      console.log(`   Total tokens: ${totalTokens}`)
-      console.log(`   Final response: ${finalResponse.substring(0, 100)}${finalResponse.length > 100 ? '...' : ''}`)
+      // Print rubric scores for final step if PI judge is enabled
+      if (usePiJudge) {
+        await printRubricScores(finalResponse, "final", evaluationRubric, controller, encoder)
+      }
       
       break
     }
@@ -207,48 +220,56 @@ async function executeAgentWithTools(
         ),
       )
       await delay(400)
+      
+      // Print rubric scores for action step if PI judge is enabled
+      if (usePiJudge) {
+        await printRubricScores(`Executing: ${action}`, "action", evaluationRubric, controller, encoder)
+      }
 
       const result = await executeAction(action)
+
+      // Score the observation content (the result of the action)
+      const rubricCriteria: RubricCriteria[] = [
+        {
+          id: "tool-call",
+          criteria: "Tool Call",
+          description: "Does this step call a tool?",
+          traceType: "general"
+        }
+      ]
+      
+      const rubricScores = await scoreTraceStep(result, "observation", rubricCriteria)
 
       controller.enqueue(
         encoder.encode(
           `data: ${JSON.stringify({
             type: "observation",
             content: result,
+            rubricScores: rubricScores,
           })}\n\n`,
         ),
       )
 
-      // Create detailed trace step information for scoring
-      const traceStepInput = `Step ${stepCount}: ${reasoning}\nAction to execute: ${action}\nGoal: ${goal}\nCurrent context: ${currentContext}`
-      const traceStepOutput = result
-      
-      const rubricScores = await scoreLLMOutput(traceStepInput, traceStepOutput, [
-        { question: "Does this step call a tool?" }
-      ])
-      
-      // Note: The rubric scores are returned but not currently used in the agent execution
-      // They would be integrated into the trace creation in the frontend
+      // Print rubric scores for observation step if PI judge is enabled
+      if (usePiJudge) {
+        await printRubricScores(result, "observation", evaluationRubric, controller, encoder)
+      }
 
       // Update context for next iteration
       currentContext += `\n\nStep ${stepCount}: Executed ${action}, Result: ${result}`
       
-      // Log step completion
-      console.log(`✅ Step ${stepCount} completed successfully`)
-      console.log(`   Action: ${action}`)
-      console.log(`   Result: ${result.substring(0, 100)}${result.length > 100 ? '...' : ''}`)
-      console.log(`   Context updated for next iteration`)
       
       await delay(800)
     }
   }
 
   if (stepCount >= maxSteps) {
+    const maxStepsContent = "Agent reached maximum steps limit. Execution complete."
     controller.enqueue(
       encoder.encode(
         `data: ${JSON.stringify({
           type: "final",
-          content: "Agent reached maximum steps limit. Execution complete.",
+          content: maxStepsContent,
           metadata: {
             totalTokens: totalTokens,
             steps: stepCount
@@ -257,11 +278,10 @@ async function executeAgentWithTools(
       ),
     )
     
-    // Log maximum steps reached
-    console.log(`⚠️  Maximum steps limit reached - Agent execution stopped`)
-    console.log(`   Total steps: ${stepCount}/${maxSteps}`)
-    console.log(`   Total tokens: ${totalTokens}`)
-    console.log(`   Execution terminated due to step limit`)
+    // Print rubric scores for max steps final step if PI judge is enabled
+    if (usePiJudge) {
+      await printRubricScores(maxStepsContent, "final", evaluationRubric, controller, encoder)
+    }
   }
 }
 
@@ -443,4 +463,54 @@ async function executeAction(action: string): Promise<string> {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function printRubricScores(
+  traceContent: string,
+  traceType: "thinking" | "action" | "observation" | "final",
+  evaluationRubric: any[],
+  controller: ReadableStreamDefaultController,
+  encoder: TextEncoder,
+) {
+  // Convert evaluation rubric to RubricCriteria format
+  const rubricCriteria: RubricCriteria[] = evaluationRubric.map(item => ({
+    id: item.id,
+    criteria: item.criteria,
+    description: item.description,
+    traceType: item.traceType,
+    toolName: item.toolName || null
+  }))
+
+  // Score the trace step
+  const rubricScores = await scoreTraceStep(traceContent, traceType, rubricCriteria)
+  
+  // Format the rubric scores output
+  let scoresOutput = `Rubric Scores for ${traceType.toUpperCase()} step:\n\n`
+  
+  if (rubricScores.length === 0) {
+    scoresOutput += "No applicable rubric criteria found.\n"
+  } else {
+    rubricScores.forEach((score, index) => {
+      const criteria = rubricCriteria.find(c => c.id === score.rubricItemId)
+      const criteriaName = criteria ? criteria.criteria : `Criteria ${index + 1}`
+      scoresOutput += `${criteriaName}: ${score.score.toFixed(2)} (${(score.score * 100).toFixed(0)}%)\n`
+    })
+    
+    // Calculate and show average score
+    const averageScore = rubricScores.reduce((sum, score) => sum + score.score, 0) / rubricScores.length
+    scoresOutput += `\nAverage Score: ${averageScore.toFixed(2)} (${(averageScore * 100).toFixed(0)}%)`
+  }
+
+  // Send the rubric scores as a separate trace step
+  controller.enqueue(
+    encoder.encode(
+      `data: ${JSON.stringify({
+        type: "observation",
+        content: scoresOutput,
+        rubricScores: rubricScores,
+      })}\n\n`,
+    ),
+  )
+  
+  await delay(500) // Small delay for readability
 }

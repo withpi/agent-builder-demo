@@ -6,6 +6,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Multiselect, MultiselectOption } from "@/components/ui/multiselect"
+import { EvaluationRubricItem } from "@/lib/types"
+import { DEFAULT_EVALUATION_RUBRIC } from "@/lib/default-rubric"
 import {
   Play,
   Square,
@@ -64,14 +66,6 @@ interface LabeledDataEntry {
   userPrompt: string
 }
 
-interface EvaluationRubricItem {
-  id: string
-  criteria: string
-  description: string
-  traceType: "thinking" | "action" | "observation" | "final" | "general"
-  toolName: string | null
-  timestamp: Date
-}
 
 interface FeedbackModalProps {
   traceId: string
@@ -137,16 +131,7 @@ export default function AgentTracePage() {
   const [selectedModel, setSelectedModel] = useState("gpt-4")
   const [usePiJudge, setUsePiJudge] = useState(false)
   const [labeledData, setLabeledData] = useState<LabeledDataEntry[]>([])
-  const [evaluationRubric, setEvaluationRubric] = useState<EvaluationRubricItem[]>([
-    {
-      id: "tool-call",
-      criteria: "Tool Call",
-      description: "Does this step call a tool?",
-      traceType: "general",
-      toolName: null,
-      timestamp: new Date()
-    }
-  ])
+  const [evaluationRubric, setEvaluationRubric] = useState<EvaluationRubricItem[]>(DEFAULT_EVALUATION_RUBRIC)
   const [selectedRubricFilters, setSelectedRubricFilters] = useState<string[]>(["all"])
   const traceEndRef = useRef<HTMLDivElement>(null)
   const isRunningRef = useRef(false)
@@ -172,7 +157,7 @@ export default function AgentTracePage() {
     },
   ])
 
-  // Helper function to generate Pi scoring API call for a trace step
+  // Helper function to generate Pi scoring for a trace step using centralized function
   const generatePiRubricScores = async (traceContent: string, traceType: TraceEntry["type"]): Promise<Array<{rubricItemId: string, score: number}>> => {
     const relevantRubricItems = evaluationRubric.filter(item => 
       item.traceType === traceType || item.traceType === "general"
@@ -190,6 +175,7 @@ export default function AgentTracePage() {
         },
         body: JSON.stringify({
           traceContent,
+          traceType,
           rubricCriteria: relevantRubricItems
         }),
       })
@@ -201,7 +187,7 @@ export default function AgentTracePage() {
       const result = await response.json()
       return result.scores || []
     } catch (error) {
-      console.error("Error calling Pi scoring API:", error)
+      console.error("[Frontend] Error calling Pi scoring API:", error)
       // Fallback to mock scores on error
       return relevantRubricItems.map(item => ({
         rubricItemId: item.id,
@@ -251,6 +237,7 @@ export default function AgentTracePage() {
           },
           body: JSON.stringify({
             traceContent: trace.content,
+            traceType: trace.type,
             rubricCriteria: tempRubric
           }),
         })
@@ -334,6 +321,7 @@ export default function AgentTracePage() {
           },
           body: JSON.stringify({
             traceContent: trace.content,
+            traceType: trace.type,
             rubricCriteria: tempRubric
           }),
         })
@@ -473,13 +461,13 @@ export default function AgentTracePage() {
       return
     }
 
-    console.log("[v0] Starting agent execution with:", { userPrompt, selectedModel, goal })
     setIsRunning(true)
     isRunningRef.current = true
     clearTrace()
 
     const currentConfigHash = getConfigurationHash()
     const startTime = Date.now()
+    const currentUserPrompt = userPrompt // Store the current prompt
     
     // Check if this exact configuration + user prompt combination already exists
     const existingResult = evaluationResults.find(result => 
@@ -536,20 +524,20 @@ export default function AgentTracePage() {
     }
 
     try {
-      console.log("[v0] Making API request to /api/agent")
       const response = await fetch("/api/agent", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          goal: userPrompt,
+          goal: currentUserPrompt,
           model: selectedModel,
           systemPrompt: goal,
+          usePiJudge: usePiJudge,
+          evaluationRubric: evaluationRubric,
         }),
       })
 
-      console.log("[v0] API response status:", response.status)
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`)
       }
@@ -559,7 +547,6 @@ export default function AgentTracePage() {
         throw new Error("No response body")
       }
 
-      console.log("[v0] Starting to read stream")
       const decoder = new TextDecoder()
       const currentTraces: TraceEntry[] = []
 
@@ -571,7 +558,6 @@ export default function AgentTracePage() {
         }
 
         const { done, value } = await reader.read()
-        console.log("[v0] Stream read:", { done, valueLength: value?.length })
 
         if (done) {
           console.log("[v0] Stream completed")
@@ -579,17 +565,22 @@ export default function AgentTracePage() {
         }
 
         const chunk = decoder.decode(value)
-        console.log("[v0] Decoded chunk:", chunk)
         const lines = chunk.split("\n")
 
         for (const line of lines) {
           if (line.startsWith("data: ")) {
             try {
               const data = JSON.parse(line.slice(6))
-              console.log("[v0] Parsed SSE data:", data)
 
-              // Generate Pi scores for the trace
-              const rubricScores = await generatePiRubricScores(data.content, data.type)
+              // Use rubric scores from agent if available, otherwise generate them
+              let rubricScores: Array<{rubricItemId: string, score: number}> = []
+              if (data.rubricScores && Array.isArray(data.rubricScores)) {
+                // Use scores from agent route
+                rubricScores = data.rubricScores
+              } else {
+                // Generate Pi scores for the trace (fallback)
+                rubricScores = await generatePiRubricScores(data.content, data.type)
+              }
               
               const newTrace: TraceEntry = {
                 id: Date.now().toString() + Math.random(),
@@ -662,6 +653,9 @@ export default function AgentTracePage() {
     console.log("[v0] Agent execution completed")
     setIsRunning(false)
     isRunningRef.current = false
+    
+    // Don't clear the user prompt to enable conversation continuation
+    // The user can now continue the conversation by adding more prompts
   }
 
   const stopAgent = () => {
@@ -912,7 +906,7 @@ export default function AgentTracePage() {
   const loadConfigurationFromEvaluation = (result: EvaluationResult) => {
     setGoal(result.systemPrompt) // Use the stored system prompt
     setCurrentPage("Build Agent")
-    setUserPrompt("") // Clear user prompt
+    // Don't clear user prompt to maintain conversation context
     setTraces([]) // Clear any existing traces
     setIsRunning(false) // Ensure not in running state
     setSelectedModel(result.model)
@@ -1642,144 +1636,171 @@ export default function AgentTracePage() {
               </div>
             </div>
 
-            {/* Middle Pane - Execute (now takes full remaining width) */}
+            {/* Main Content Area - ChatGPT-like Layout */}
             <div className="flex-1 mx-6 flex flex-col">
-              <h1 className="text-2xl font-bold mb-6">Execute</h1>
-              <div className="mb-4">
-                <h2 className="text-sm font-medium mb-4">User Prompt</h2>
-                <Textarea
-                  value={userPrompt}
-                  onChange={(e) => setUserPrompt(e.target.value)}
-                  placeholder="Enter your prompt here (e.g., 'Plan a day trip to downtown with good restaurants')"
-                  className="w-full min-h-[60px] resize-none"
-                  disabled={isRunning}
-                />
-              </div>
-
-              <div className="flex flex-col" style={{ height: 'calc(100vh - 280px)' }}>
+              <h1 className="text-2xl font-bold mb-6">Agent Conversation</h1>
+              
+              {/* Trace Display Area - Takes up most of the space */}
+              <div className="flex-1 flex flex-col min-h-0" style={{ height: 'calc(100vh - 280px)' }}>
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-sm font-medium">Agent Execution Trace</h2>
-                  <div className="flex gap-2">
-                    <Button onClick={runAgent} disabled={isRunning} size="sm">
-                      <Play className="h-4 w-4 mr-2" />
-                      Run Agent
-                    </Button>
-                    <Button
-                      onClick={stopAgent}
-                      disabled={!isRunning}
-                      variant="destructive"
-                      size="sm"
-                    >
-                      <Square className="h-4 w-4 mr-2" />
-                      Stop
-                    </Button>
-                  </div>
+                  <h2 className="text-sm font-medium">Execution Trace</h2>
                 </div>
+                
+                {/* Trace Messages - Similar to ChatGPT conversation */}
                 <div className="flex-1 overflow-hidden border rounded-lg">
-                  <div className="h-full overflow-y-auto space-y-3 p-4">
+                  <div className="h-full overflow-y-auto">
                     {traces.length === 0 ? (
                       <div className="flex items-center justify-center h-full text-muted-foreground">
-                        <p>No traces yet. Run the agent to see execution steps.</p>
+                        <div className="text-center">
+                          <p className="mb-2">No conversation yet.</p>
+                          <p className="text-sm">Enter a prompt below to start the agent conversation.</p>
+                        </div>
                       </div>
                     ) : (
-                      traces.map((trace, index) => (
-                        <div key={trace.id}>
-                          <div className={`border-l-4 p-4 rounded-r-lg ${getTraceColor(trace.type)}`}>
-                            <div className="flex items-center justify-between mb-2">
-                              <Badge className={getBadgeColor(trace.type)}>{trace.type.toUpperCase()}</Badge>
-                              <div className="flex items-center gap-2">
-                                {/* Average Score Badge */}
-                                {trace.rubricScores && trace.rubricScores.length > 0 && (
-                                  <Badge 
-                                    variant="outline" 
-                                    className={`text-xs ${
-                                      calculateTraceAverageScore(trace) >= 0.8 
-                                        ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
-                                        : calculateTraceAverageScore(trace) >= 0.6
-                                        ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"
-                                        : "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
-                                    }`}
-                                    title={`Average score across all rubric criteria: ${calculateTraceAverageScore(trace).toFixed(2)}`}
-                                  >
-                                    Avg: {calculateTraceAverageScore(trace).toFixed(2)}
-                                  </Badge>
-                                )}
-                                <span className="text-xs text-muted-foreground">
-                                  {trace.timestamp.toLocaleTimeString()}
-                                </span>
-                                <div className="flex gap-1">
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    className="h-6 w-6 p-0 hover:bg-green-100 dark:hover:bg-green-900/20"
-                                    onClick={() => handleFeedback(trace.id, true)}
-                                  >
-                                    <ThumbsUp className="h-3 w-3 text-green-600" />
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    className="h-6 w-6 p-0 hover:bg-red-100 dark:hover:bg-red-900/20"
-                                    onClick={() => handleFeedback(trace.id, false)}
-                                  >
-                                    <ThumbsDown className="h-3 w-3 text-red-600" />
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    className="h-6 w-6 p-0 hover:bg-blue-100 dark:hover:bg-blue-950/20"
-                                    onClick={() => console.log(`[v0] Inspecting trace ${trace.id}:`, trace)}
-                                  >
-                                    <Search className="h-3 w-3 text-blue-600" />
-                                  </Button>
-                                </div>
-                              </div>
-                            </div>
-                            <p className="text-sm font-mono leading-relaxed">{trace.content}</p>
-                            
-                            {/* Rubric Scores Display */}
-                            {trace.rubricScores && trace.rubricScores.length > 0 && (
-                              <div className="mt-3 pt-3 border-t border-border/50">
-                                <div className="text-xs font-medium text-muted-foreground mb-2">Rubric Scores:</div>
-                                <div className="overflow-x-auto">
-                                  <div className="flex gap-2 min-w-max pb-1">
-                                    {trace.rubricScores.map((score, scoreIndex) => {
-                                      const rubricItem = evaluationRubric.find(item => item.id === score.rubricItemId)
-                                      if (!rubricItem) return null
-                                      
-                                      const getScoreColor = (score: number) => {
-                                        if (score >= 0.8) return "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
-                                        if (score >= 0.6) return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"
-                                        return "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
-                                      }
-                                      
-                                      return (
-                                        <div key={scoreIndex} className="flex items-center gap-1 flex-shrink-0">
-                                          <Badge 
-                                            variant="outline" 
-                                            className={`text-xs ${getScoreColor(score.score)}`}
-                                            title={rubricItem.description}
-                                          >
-                                            {rubricItem.criteria}: {score.score.toFixed(2)}
-                                          </Badge>
-                                        </div>
-                                      )
-                                    })}
+                      <div className="space-y-4 p-4">
+                        {traces.map((trace, index) => (
+                          <div key={trace.id} className="flex flex-col">
+                            <div className={`border-l-4 p-4 rounded-r-lg ${getTraceColor(trace.type)}`}>
+                              <div className="flex items-center justify-between mb-2">
+                                <Badge className={getBadgeColor(trace.type)}>{trace.type.toUpperCase()}</Badge>
+                                <div className="flex items-center gap-2">
+                                  {/* Average Score Badge */}
+                                  {trace.rubricScores && trace.rubricScores.length > 0 && (
+                                    <Badge 
+                                      variant="outline" 
+                                      className={`text-xs ${
+                                        calculateTraceAverageScore(trace) >= 0.8 
+                                          ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+                                          : calculateTraceAverageScore(trace) >= 0.6
+                                          ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"
+                                          : "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
+                                      }`}
+                                      title={`Average score across all rubric criteria: ${calculateTraceAverageScore(trace).toFixed(2)}`}
+                                    >
+                                      Avg: {calculateTraceAverageScore(trace).toFixed(2)}
+                                    </Badge>
+                                  )}
+                                  <span className="text-xs text-muted-foreground">
+                                    {trace.timestamp.toLocaleTimeString()}
+                                  </span>
+                                  <div className="flex gap-1">
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-6 w-6 p-0 hover:bg-green-100 dark:hover:bg-green-900/20"
+                                      onClick={() => handleFeedback(trace.id, true)}
+                                    >
+                                      <ThumbsUp className="h-3 w-3 text-green-600" />
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-6 w-6 p-0 hover:bg-red-100 dark:hover:bg-red-900/20"
+                                      onClick={() => handleFeedback(trace.id, false)}
+                                    >
+                                      <ThumbsDown className="h-3 w-3 text-red-600" />
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-6 w-6 p-0 hover:bg-blue-100 dark:hover:bg-blue-950/20"
+                                      onClick={() => console.log(`[v0] Inspecting trace ${trace.id}:`, trace)}
+                                    >
+                                      <Search className="h-3 w-3 text-blue-600" />
+                                    </Button>
                                   </div>
                                 </div>
                               </div>
-                            )}
-                          </div>
-                          {index < traces.length - 1 && (
-                            <div className="flex justify-center py-2">
-                              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                              <p className="text-sm font-mono leading-relaxed">{trace.content}</p>
+                              
+                              {/* Rubric Scores Display */}
+                              {trace.rubricScores && trace.rubricScores.length > 0 && (
+                                <div className="mt-3 pt-3 border-t border-border/50">
+                                  <div className="text-xs font-medium text-muted-foreground mb-2">Rubric Scores:</div>
+                                  <div className="overflow-x-auto">
+                                    <div className="flex gap-2 min-w-max pb-1">
+                                      {trace.rubricScores.map((score, scoreIndex) => {
+                                        const rubricItem = evaluationRubric.find(item => item.id === score.rubricItemId)
+                                        if (!rubricItem) return null
+                                        
+                                        const getScoreColor = (score: number) => {
+                                          if (score >= 0.8) return "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+                                          if (score >= 0.6) return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"
+                                          return "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
+                                        }
+                                        
+                                        return (
+                                          <div key={scoreIndex} className="flex items-center gap-1 flex-shrink-0">
+                                            <Badge 
+                                              variant="outline" 
+                                              className={`text-xs ${getScoreColor(score.score)}`}
+                                              title={rubricItem.description}
+                                            >
+                                              {rubricItem.criteria}: {score.score.toFixed(2)}
+                                            </Badge>
+                                          </div>
+                                        )
+                                      })}
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
                             </div>
-                          )}
-                        </div>
-                      ))
+                          </div>
+                        ))}
+                        <div ref={traceEndRef} />
+                      </div>
                     )}
-                    <div ref={traceEndRef} />
                   </div>
+                </div>
+              </div>
+
+              {/* User Prompt Input - Fixed at bottom like ChatGPT */}
+              <div className="border-t bg-background p-4">
+                <div className="max-w-4xl mx-auto">
+                  <div className="flex items-end gap-3">
+                    <div className="flex-1">
+                      <Textarea
+                        value={userPrompt}
+                        onChange={(e) => setUserPrompt(e.target.value)}
+                        placeholder="Ask the agent anything... (e.g., 'Tell me about the exchange rates between India and USA')"
+                        className="w-full min-h-[60px] max-h-[120px] resize-none"
+                        disabled={isRunning}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault()
+                            if (!isRunning && userPrompt.trim()) {
+                              runAgent()
+                            }
+                          }
+                        }}
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <Button 
+                        onClick={runAgent} 
+                        disabled={isRunning || !userPrompt.trim()} 
+                        size="sm"
+                        className="h-10 px-4"
+                      >
+                        <Play className="h-4 w-4 mr-2" />
+                        Start
+                      </Button>
+                      <Button 
+                        onClick={stopAgent} 
+                        disabled={!isRunning} 
+                        variant="destructive"
+                        size="sm"
+                        className="h-10 px-4"
+                      >
+                        <Square className="h-4 w-4 mr-2" />
+                        Stop
+                      </Button>
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2 text-center">
+                    Press Enter to send, Shift+Enter for new line
+                  </p>
                 </div>
               </div>
             </div>
