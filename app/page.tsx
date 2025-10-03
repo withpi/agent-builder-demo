@@ -23,6 +23,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Github,
+  Download,
+  Upload,
 } from "lucide-react"
 
 interface TraceEntry {
@@ -133,6 +135,10 @@ export default function AgentTracePage() {
   const [labeledData, setLabeledData] = useState<LabeledDataEntry[]>([])
   const [evaluationRubric, setEvaluationRubric] = useState<EvaluationRubricItem[]>(DEFAULT_EVALUATION_RUBRIC)
   const [selectedRubricFilters, setSelectedRubricFilters] = useState<string[]>(["all"])
+  const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({})
+  const [collapsedSubcategories, setCollapsedSubcategories] = useState<Record<string, boolean>>({})
+  const [showDownloadDropdown, setShowDownloadDropdown] = useState(false)
+  const [showIndividualSteps, setShowIndividualSteps] = useState(false)
   const traceEndRef = useRef<HTMLDivElement>(null)
   const isRunningRef = useRef(false)
 
@@ -454,6 +460,23 @@ export default function AgentTracePage() {
   useEffect(() => {
     traceEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [traces])
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (showDownloadDropdown) {
+        const target = event.target as Element
+        if (!target.closest('.download-dropdown')) {
+          setShowDownloadDropdown(false)
+        }
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showDownloadDropdown])
 
   const runAgent = async () => {
     if (!userPrompt.trim()) {
@@ -899,6 +922,39 @@ export default function AgentTracePage() {
     return `${(tokens / 1000000).toFixed(1)}M`
   }
 
+  const downloadData = () => {
+    const exportData = {
+      metadata: {
+        exportDate: new Date().toISOString(),
+        version: "1.0",
+        description: "Pi Agent Builder - Complete Data Export"
+      },
+      traces: traces,
+      evaluationResults: evaluationResults,
+      labeledData: labeledData,
+      evaluationRubric: evaluationRubric,
+      tools: tools,
+      currentConfiguration: {
+        goal,
+        selectedModel,
+        usePiJudge,
+        userPrompt
+      }
+    }
+
+    const dataStr = JSON.stringify(exportData, null, 2)
+    const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr)
+    
+    const exportFileDefaultName = `pi-agent-builder-export-${new Date().toISOString().split('T')[0]}.json`
+    
+    const linkElement = document.createElement('a')
+    linkElement.setAttribute('href', dataUri)
+    linkElement.setAttribute('download', exportFileDefaultName)
+    linkElement.click()
+    
+    setShowDownloadDropdown(false)
+  }
+
   const truncateText = (text: string, maxLength = 100) => {
     return text.length > maxLength ? text.slice(0, maxLength) + "..." : text
   }
@@ -1086,89 +1142,223 @@ export default function AgentTracePage() {
     )
   }
 
-  const renderLabeledDataTable = () => {
-    if (labeledData.length === 0) {
+  const renderLogTable = () => {
+    // Get all evaluation results (full traces)
+    const allEvaluationResults = [
+      ...evaluationResults,
+      // Include current session as a result if there are traces
+      ...(traces.length > 0 ? [{
+        id: 'current-session',
+        configurationHash: getConfigurationHash(),
+        configurationName: getConfigurationHash(),
+        systemPrompt: goal,
+        userPrompt: userPrompt || 'Current Session',
+        finalOutput: traces.length > 0 ? traces[traces.length - 1]?.content || 'No final output' : 'No output',
+        timestamp: new Date(),
+        traces: traces,
+        isExecuting: false,
+        model: selectedModel,
+        usePiJudge: usePiJudge,
+        metrics: {
+          steps: traces.length,
+          latency: 0,
+          totalTokens: 0
+        }
+      }] : [])
+    ]
+
+    if (allEvaluationResults.length === 0) {
       return (
         <div className="flex items-center justify-center h-full text-muted-foreground">
           <div className="text-center">
-            <p className="mb-2">No labeled data yet.</p>
-            <p className="text-sm">Provide feedback on trace steps to populate this table.</p>
+            <p className="mb-2">No traces yet.</p>
+            <p className="text-sm">Run the agent to see trace logs.</p>
           </div>
         </div>
       )
     }
 
-    return (
-      <div className="overflow-auto h-full">
-        <table className="w-full border-collapse border border-border">
-          <thead>
-            <tr>
-              <th className="border border-border p-3 bg-muted/50 text-left font-medium flex-1">Full Trace (JSON)</th>
-              <th className="border border-border p-3 bg-muted/50 text-left font-medium w-24">Feedback</th>
-              <th className="border border-border p-3 bg-muted/50 text-left font-medium w-64">Note</th>
-              <th className="border border-border p-3 bg-muted/50 text-left font-medium w-32">Timestamp</th>
-              <th className="border border-border p-3 bg-muted/50 text-left font-medium w-64">Configuration</th>
-            </tr>
-          </thead>
-          <tbody>
-            {labeledData.map((entry) => {
-              // Parse the new configuration format: "prompt... (model, Pi Judge) [hash]"
-              const configParts = entry.configurationName.split(" (")[1]?.split(")")[0] || ""
-              const modelMatch = configParts.split(",")[0] || "gpt-4"
-              const isPiJudgeEnabled = configParts.includes("Pi Judge")
-              // Extract system prompt from the beginning of the configuration name
-              const systemPrompt = entry.configurationName.split(" (")[0] || entry.configurationName
-
-              return (
-                <tr key={entry.id}>
+    if (showIndividualSteps) {
+      // Show individual steps
+      const allTraces = allEvaluationResults.flatMap(result => result.traces)
+      
+      return (
+        <div className="overflow-auto h-full">
+          <table className="w-full border-collapse border border-border">
+            <thead>
+              <tr>
+                <th className="border border-border p-3 bg-muted/50 text-left font-medium flex-1">Trace Content</th>
+                <th className="border border-border p-3 bg-muted/50 text-left font-medium w-24">Type</th>
+                <th className="border border-border p-3 bg-muted/50 text-left font-medium w-32">Timestamp</th>
+                <th className="border border-border p-3 bg-muted/50 text-left font-medium w-32">Avg Score</th>
+                <th className="border border-border p-3 bg-muted/50 text-left font-medium w-64">Rubric Scores</th>
+              </tr>
+            </thead>
+            <tbody>
+              {allTraces.map((trace, index) => (
+                <tr key={`${trace.id}-${index}`}>
                   <td className="border border-border p-3 align-top">
-                    <div className="text-xs font-mono bg-muted/30 p-2 rounded max-h-32 overflow-y-auto">
-                      <pre className="whitespace-pre-wrap">{JSON.stringify(entry.fullTrace, null, 2)}</pre>
+                    <div className="text-sm font-mono leading-relaxed">
+                      {trace.content}
                     </div>
                   </td>
-                  <td className="border border-border p-3 align-top text-center">
-                    {entry.feedback === "positive" ? (
-                      <ThumbsUp className="h-4 w-4 text-green-600 mx-auto" />
+                  <td className="border border-border p-3 align-top">
+                    <Badge className={getBadgeColor(trace.type)}>
+                      {trace.type.toUpperCase()}
+                    </Badge>
+                  </td>
+                  <td className="border border-border p-3 align-top">
+                    <div className="text-xs text-muted-foreground">{trace.timestamp.toLocaleString()}</div>
+                  </td>
+                  <td className="border border-border p-3 align-top">
+                    {trace.rubricScores && trace.rubricScores.length > 0 ? (
+                      <Badge 
+                        variant="outline" 
+                        className={`text-xs ${
+                          calculateTraceAverageScore(trace) >= 0.8 
+                            ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+                            : calculateTraceAverageScore(trace) >= 0.6
+                            ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"
+                            : "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
+                        }`}
+                        title={`Average score: ${calculateTraceAverageScore(trace).toFixed(2)}`}
+                      >
+                        {calculateTraceAverageScore(trace).toFixed(2)}
+                      </Badge>
                     ) : (
-                      <ThumbsDown className="h-4 w-4 text-red-600 mx-auto" />
+                      <span className="text-xs text-muted-foreground">No scores</span>
                     )}
                   </td>
                   <td className="border border-border p-3 align-top">
-                    <div className="text-sm">
-                      {entry.note || <span className="text-muted-foreground italic">No note</span>}
-                    </div>
-                  </td>
-                  <td className="border border-border p-3 align-top">
-                    <div className="text-xs text-muted-foreground">{entry.timestamp.toLocaleString()}</div>
-                  </td>
-                  <td className="border border-border p-3 align-top w-64">
-                    <div className="space-y-2 mb-3">
-                      <Badge
-                        variant="secondary"
-                        className="text-xs bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200"
-                      >
-                        {modelMatch}
-                      </Badge>
-                      <Badge
-                        variant={isPiJudgeEnabled ? "default" : "outline"}
-                        className={`text-xs ${
-                          isPiJudgeEnabled
-                            ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
-                            : "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200"
-                        }`}
-                      >
-                        {isPiJudgeEnabled ? "Using Pi Judge" : "Not using Pi Judge"}
-                      </Badge>
-                    </div>
-                    <div className="text-sm text-muted-foreground">{truncateText(systemPrompt, 80)}</div>
+                    {trace.rubricScores && trace.rubricScores.length > 0 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {trace.rubricScores.map((score, scoreIndex) => {
+                          const rubricItem = evaluationRubric.find(item => item.id === score.rubricItemId)
+                          if (!rubricItem) return null
+                          
+                          const getScoreColor = (score: number) => {
+                            if (score >= 0.8) return "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+                            if (score >= 0.6) return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"
+                            return "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
+                          }
+                          
+                          return (
+                            <Badge 
+                              key={scoreIndex}
+                              variant="outline" 
+                              className={`text-xs ${getScoreColor(score.score)}`}
+                              title={rubricItem.description}
+                            >
+                              {rubricItem.criteria}: {score.score.toFixed(2)}
+                            </Badge>
+                          )
+                        })}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">No rubric scores</span>
+                    )}
                   </td>
                 </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
-    )
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )
+    } else {
+      // Show full traces (default)
+      return (
+        <div className="overflow-auto h-full">
+          <table className="w-full border-collapse border border-border">
+            <thead>
+              <tr>
+                <th className="border border-border p-3 bg-muted/50 text-left font-medium flex-1">Full Trace</th>
+                <th className="border border-border p-3 bg-muted/50 text-left font-medium w-24">Steps</th>
+                <th className="border border-border p-3 bg-muted/50 text-left font-medium w-32">Avg Score</th>
+                <th className="border border-border p-3 bg-muted/50 text-left font-medium w-32">Timestamp</th>
+                <th className="border border-border p-3 bg-muted/50 text-left font-medium w-64">Configuration</th>
+              </tr>
+            </thead>
+            <tbody>
+              {allEvaluationResults.map((result) => (
+                <tr key={result.id}>
+                  <td className="border border-border p-3 align-top">
+                    <div className="space-y-2">
+                      {result.traces.map((trace, index) => (
+                        <div key={`${trace.id}-${index}`} className={`border-l-4 p-2 rounded-r ${getTraceColor(trace.type)}`}>
+                          <div className="flex items-center justify-between mb-1">
+                            <Badge className={`${getBadgeColor(trace.type)} text-xs`}>
+                              {trace.type.toUpperCase()}
+                            </Badge>
+                            {trace.rubricScores && trace.rubricScores.length > 0 && (
+                              <Badge 
+                                variant="outline" 
+                                className={`text-xs ${
+                                  calculateTraceAverageScore(trace) >= 0.8 
+                                    ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+                                    : calculateTraceAverageScore(trace) >= 0.6
+                                    ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"
+                                    : "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
+                                }`}
+                                title={`Average score: ${calculateTraceAverageScore(trace).toFixed(2)}`}
+                              >
+                                {calculateTraceAverageScore(trace).toFixed(2)}
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="text-sm font-mono leading-relaxed">
+                            {trace.content}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </td>
+                  <td className="border border-border p-3 align-top text-center">
+                    <Badge variant="outline" className="text-xs">
+                      {result.traces.length}
+                    </Badge>
+                  </td>
+                  <td className="border border-border p-3 align-top text-center">
+                    {result.traces.length > 0 && selectedRubricFilters.length > 0 ? (
+                      <Badge 
+                        variant="outline" 
+                        className={`text-xs ${
+                          calculateTracesAverageScore(result.traces, selectedRubricFilters) >= 0.8 
+                            ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+                            : calculateTracesAverageScore(result.traces, selectedRubricFilters) >= 0.6
+                            ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"
+                            : "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
+                        }`}
+                        title={`Average score across all traces: ${calculateTracesAverageScore(result.traces, selectedRubricFilters).toFixed(2)}`}
+                      >
+                        {calculateTracesAverageScore(result.traces, selectedRubricFilters).toFixed(2)}
+                      </Badge>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">No scores</span>
+                    )}
+                  </td>
+                  <td className="border border-border p-3 align-top">
+                    <div className="text-xs text-muted-foreground">{result.timestamp.toLocaleString()}</div>
+                  </td>
+                  <td className="border border-border p-3 align-top">
+                    <div className="space-y-2">
+                      <Badge variant="secondary" className="text-xs">
+                        {result.model}
+                      </Badge>
+                      <Badge variant={result.usePiJudge ? "default" : "outline"} className="text-xs">
+                        {result.usePiJudge ? "Pi Judge" : "No Pi Judge"}
+                      </Badge>
+                      <div className="text-xs text-muted-foreground">
+                        {truncateText(result.userPrompt, 50)}
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )
+    }
   }
 
   const [addCriteriaModal, setAddCriteriaModal] = useState(false)
@@ -1282,6 +1472,20 @@ export default function AgentTracePage() {
     }
   }
 
+  const toggleCategoryCollapse = (categoryKey: string) => {
+    setCollapsedCategories(prev => ({
+      ...prev,
+      [categoryKey]: !prev[categoryKey]
+    }))
+  }
+
+  const toggleSubcategoryCollapse = (subcategoryKey: string) => {
+    setCollapsedSubcategories(prev => ({
+      ...prev,
+      [subcategoryKey]: !prev[subcategoryKey]
+    }))
+  }
+
   const renderEvaluationRubric = () => {
     // Group criteria by trace type, then by tool within each type
     const criteriaByType = evaluationRubric.reduce((acc, item) => {
@@ -1350,81 +1554,144 @@ export default function AgentTracePage() {
                 
                 if (totalCriteria === 0) return null
 
+                const categoryKey = traceType
+                const isCategoryCollapsed = collapsedCategories[categoryKey]
+
                 return (
                   <div key={traceType} className="space-y-4">
-                    <div className="flex items-center gap-3">
+                    {/* Category Header - Collapsible */}
+                    <div 
+                      className="flex items-center gap-3 cursor-pointer hover:bg-muted/30 p-2 rounded-lg transition-colors"
+                      onClick={() => toggleCategoryCollapse(categoryKey)}
+                    >
+                      <ChevronDown 
+                        className={`h-4 w-4 text-muted-foreground transition-transform ${
+                          isCategoryCollapsed ? '-rotate-90' : ''
+                        }`} 
+                      />
                       <h2 className="text-lg font-semibold">{traceTypeLabels[traceType as keyof typeof traceTypeLabels]}</h2>
                       <Badge variant="secondary" className="text-xs">
                         {totalCriteria} criteria
                       </Badge>
                     </div>
                     
-                    {/* Render tool groups within this trace type */}
-                    {Object.entries(toolGroups).map(([toolKey, criteria]) => {
-                      if (criteria.length === 0) return null
-                      
-                      return (
-                        <div key={`${traceType}-${toolKey}`} className="space-y-3 ml-4">
-                          {/* Tool-specific header */}
-                          {toolKey !== "general" && (
-                            <div className="flex items-center gap-2">
-                              <h3 className="text-md font-medium text-muted-foreground">
-                                Tool: {toolKey}
-                              </h3>
-                              <Badge variant="outline" className="text-xs">
-                                {criteria.length} criteria
-                              </Badge>
-                            </div>
-                          )}
+                    {!isCategoryCollapsed && (
+                      <div className="ml-6 space-y-4">
+                        {/* Render tool groups within this trace type */}
+                        {Object.entries(toolGroups).map(([toolKey, criteria]) => {
+                          if (criteria.length === 0) return null
                           
-                          {/* Criteria for this tool */}
-                          <div className="space-y-3">
-                            {criteria.map((item, index) => (
-                              <div key={item.id} className={`p-4 border-l-4 rounded-r-lg ${getTraceTypeColor(traceType)} group relative`}>
-                                <div className="flex items-start justify-between">
-                                  <div className="flex-1 min-w-0">
-                                    <div className="font-medium text-sm mb-2">{item.criteria}</div>
-                                    <div className="text-xs text-muted-foreground">{item.description}</div>
-                                    <div className="text-xs text-muted-foreground mt-2">
-                                      Added: {item.timestamp.toLocaleString()}
-                                      {item.toolName && (
-                                        <span className="ml-2 text-blue-600 dark:text-blue-400">
-                                          • Tool: {item.toolName}
-                                        </span>
-                                      )}
-                                    </div>
-                                  </div>
-                                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2">
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        handleEditCriteria(item.id)
-                                      }}
-                                      className="h-6 w-6 p-0 hover:bg-blue-100 dark:hover:bg-blue-950/20"
-                                    >
-                                      <Edit className="h-3 w-3 text-blue-600" />
-                                    </Button>
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        handleDeleteCriteria(item.id)
-                                      }}
-                                      className="h-6 w-6 p-0 hover:bg-red-100 dark:hover:bg-red-950/20"
-                                    >
-                                      <Trash2 className="h-3 w-3 text-red-600" />
-                                    </Button>
-                                  </div>
+                          const subcategoryKey = `${traceType}-${toolKey}`
+                          const isSubcategoryCollapsed = collapsedSubcategories[subcategoryKey]
+
+                          return (
+                            <div key={subcategoryKey} className="space-y-3">
+                              {/* Tool-specific header - Collapsible */}
+                              {toolKey !== "general" && (
+                                <div 
+                                  className="flex items-center gap-2 cursor-pointer hover:bg-muted/30 p-2 rounded-lg transition-colors"
+                                  onClick={() => toggleSubcategoryCollapse(subcategoryKey)}
+                                >
+                                  <ChevronDown 
+                                    className={`h-4 w-4 text-muted-foreground transition-transform ${
+                                      isSubcategoryCollapsed ? '-rotate-90' : ''
+                                    }`} 
+                                  />
+                                  <h3 className="text-md font-medium text-muted-foreground">
+                                    Tool: {toolKey}
+                                  </h3>
+                                  <Badge variant="outline" className="text-xs">
+                                    {criteria.length} criteria
+                                  </Badge>
                                 </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )
-                    })}
+                              )}
+                              
+                              {/* Show badges when collapsed */}
+                              {toolKey !== "general" && isSubcategoryCollapsed ? (
+                                <div className="ml-6 flex flex-wrap gap-2">
+                                  {criteria.map((item) => (
+                                    <Badge 
+                                      key={item.id}
+                                      variant="outline" 
+                                      className="text-xs bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200"
+                                    >
+                                      {item.criteria}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              ) : (
+                                /* Criteria for this tool */
+                                <div className="space-y-3">
+                                  {criteria.map((item, index) => (
+                                    <div key={item.id} className={`p-4 border-l-4 rounded-r-lg ${getTraceTypeColor(traceType)} group relative`}>
+                                      <div className="flex items-start justify-between">
+                                        <div className="flex-1 min-w-0">
+                                          <div className="font-medium text-sm mb-2">{item.criteria}</div>
+                                          <div className="text-xs text-muted-foreground">{item.description}</div>
+                                          <div className="text-xs text-muted-foreground mt-2">
+                                            Added: {item.timestamp.toLocaleString()}
+                                            {item.toolName && (
+                                              <span className="ml-2 text-blue-600 dark:text-blue-400">
+                                                • Tool: {item.toolName}
+                                              </span>
+                                            )}
+                                          </div>
+                                        </div>
+                                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2">
+                                          <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            onClick={(e) => {
+                                              e.stopPropagation()
+                                              handleEditCriteria(item.id)
+                                            }}
+                                            className="h-6 w-6 p-0 hover:bg-blue-100 dark:hover:bg-blue-950/20"
+                                          >
+                                            <Edit className="h-3 w-3 text-blue-600" />
+                                          </Button>
+                                          <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            onClick={(e) => {
+                                              e.stopPropagation()
+                                              handleDeleteCriteria(item.id)
+                                            }}
+                                            className="h-6 w-6 p-0 hover:bg-red-100 dark:hover:bg-red-950/20"
+                                          >
+                                            <Trash2 className="h-3 w-3 text-red-600" />
+                                          </Button>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+
+                    {/* Show badges when category is collapsed */}
+                    {isCategoryCollapsed && (
+                      <div className="ml-6 flex flex-wrap gap-2">
+                        {Object.values(toolGroups).flat().map((item) => (
+                          <Badge 
+                            key={item.id}
+                            variant="outline" 
+                            className={`text-xs ${
+                              traceType === "thinking" ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" :
+                              traceType === "action" ? "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200" :
+                              traceType === "observation" ? "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200" :
+                              traceType === "final" ? "bg-pink-100 text-pink-800 dark:bg-pink-900 dark:text-pink-200" :
+                              "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200"
+                            }`}
+                          >
+                            {item.criteria}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )
               })
@@ -1466,12 +1733,49 @@ export default function AgentTracePage() {
               Evaluate Agent
             </Button>
             <Button
-              variant={currentPage === "Labeled Data" ? "default" : "outline"}
+              variant={currentPage === "Log" ? "default" : "outline"}
               className="text-sm"
-              onClick={() => setCurrentPage("Labeled Data")}
+              onClick={() => setCurrentPage("Log")}
             >
-              Labeled Data ({labeledData.length})
+              Log ({traces.length})
             </Button>
+            <div className="relative download-dropdown">
+              <Button
+                variant="outline"
+                className="text-sm bg-transparent"
+                onClick={() => setShowDownloadDropdown(!showDownloadDropdown)}
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Data
+                <ChevronDown className="h-4 w-4 ml-1" />
+              </Button>
+              
+              {showDownloadDropdown && (
+                <div className="absolute right-0 mt-2 w-48 bg-background border border-border rounded-md shadow-lg z-50">
+                  <div className="py-1">
+                    <button
+                      className="flex items-center w-full px-4 py-2 text-sm text-left hover:bg-muted/50 transition-colors"
+                      onClick={downloadData}
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      Download JSON
+                    </button>
+                    <button
+                      className="flex items-center w-full px-4 py-2 text-sm text-left hover:bg-muted/50 transition-colors"
+                      onClick={() => {
+                        // TODO: Implement load functionality
+                        alert("Load functionality coming soon!")
+                        setShowDownloadDropdown(false)
+                      }}
+                    >
+                      <Upload className="h-4 w-4 mr-2" />
+                      Load JSON
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+            
             <Button
               variant="outline"
               className="text-sm bg-transparent"
@@ -1820,10 +2124,29 @@ export default function AgentTracePage() {
             </div>
             <div className="flex-1 border rounded-lg overflow-hidden">{renderEvaluationTable()}</div>
           </div>
-        ) : currentPage === "Labeled Data" ? (
+        ) : currentPage === "Log" ? (
           <div className="h-[80vh] flex flex-col">
-            <h1 className="text-2xl font-bold mb-6">Labeled Training Data</h1>
-            <div className="flex-1 border rounded-lg overflow-hidden">{renderLabeledDataTable()}</div>
+            <div className="flex items-center justify-between mb-6">
+              <h1 className="text-2xl font-bold">Trace Log</h1>
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-muted-foreground">
+                  {showIndividualSteps ? "Individual Steps" : "Full Traces"}
+                </span>
+                <button
+                  onClick={() => setShowIndividualSteps(!showIndividualSteps)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 ${
+                    showIndividualSteps ? "bg-primary" : "bg-input"
+                  } cursor-pointer`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-background transition-transform ${
+                      showIndividualSteps ? "translate-x-6" : "translate-x-1"
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 border rounded-lg overflow-hidden">{renderLogTable()}</div>
           </div>
         ) : (
           renderEvaluationRubric()
