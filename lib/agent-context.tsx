@@ -13,6 +13,7 @@ import {
 } from "@/lib/utils/scoring-utils"
 import {AVAILABLE_TOOLS} from "@/lib/tools";
 import {getScoredData} from "@/lib/rubric/rubricActions";
+import {v4} from 'uuid';
 
 export type StepType = "THINKING" | "ACTION" | "OBSERVATION" | "RESPONSE" | "FEEDBACK"
 
@@ -124,10 +125,17 @@ interface AgentContextType {
 const AgentContext = createContext<AgentContextType | undefined>(undefined)
 
 export function AgentProvider({ children }: { children: ReactNode }) {
-  const [configs, setConfigs] = useState<AgentConfig[]>([])
+  const [configs, setConfigs] = useState<AgentConfig[]>([]);
   const [traces, setTraces] = useState<AgentTrace[]>([])
   const [rubrics, setRubrics] = useState<Rubric[]>([])
-  const [currentConfig, setCurrentConfig] = useState<AgentConfig | null>(null)
+  const [currentConfig, setCurrentConfig] = useState<AgentConfig>({
+    id: v4(),
+    model: 'gpt-4o',
+    systemPrompt: "You are a helpful agent",
+    toolSlugs: [],
+    usePiJudge: true,
+    createdAt: Date.now(),
+  })
   const [currentTrace, setCurrentTrace] = useState<AgentTrace | null>(null)
 
   const addConfig = (config: Omit<AgentConfig, "id" | "createdAt">) => {

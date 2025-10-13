@@ -90,6 +90,7 @@ export function AgentConversation({
       // The percentage of the target's visibility needed to trigger the callback.
       // 1.0 means 100% of the target must be visible.
       threshold: 1.0,
+
     };
     const callback = (entries: { isIntersecting: any }[]) => {
       // The callback is called when the target's visibility changes.
@@ -437,7 +438,7 @@ export function AgentConversation({
         <div className="p-6 pb-4 flex-shrink-0">
           <h3 className="text-sm font-medium">Execution Trace</h3>
         </div>
-        <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 pb-6">
+        <div ref={scrollRef} className="relative flex-1 overflow-y-auto px-6 pb-6">
           <div className="w-full space-y-3 pr-4">
             {currentTrace?.steps.map((step) => (
               <StepCard key={step.id} step={step} traceId={currentTrace.id} />
@@ -468,7 +469,7 @@ export function AgentConversation({
               </div>
             )}
           </div>
-          <div ref={sentinelRef} className={'h-1 w-full bg-red-50'} />
+          <div ref={sentinelRef} className={'h-1 w-full '} />
 
         </div>
       </div>

@@ -36,7 +36,6 @@ export function AgentConfiguration({
   const [customApiKey, setCustomApiKey] = useState("")
   const [isExportDropdownOpen, setIsExportDropdownOpen] = useState(false)
   const { toast } = useToast()
-  if (!currentConfig) return null
 
   const getLatestRubricsByAction = (toolSlug: string) => {
     const allRubrics = rubrics.filter((rubric) => {

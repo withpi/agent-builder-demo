@@ -12,23 +12,10 @@ export function AgentBuilderPanel({
   pendingConfigLoad?: { configId: string; input: string } | null
   onConfigLoaded?: () => void
 }) {
-  const { currentConfig, setCurrentConfig, addConfig, rubrics, configs } = useAgent()
+  const { currentConfig, setCurrentConfig, rubrics, configs } = useAgent()
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [usePiJudge, setUsePiJudge] = useState(true)
   const [pendingInput, setPendingInput] = useState<string | null>(null)
-
-  useEffect(() => {
-    // Initialize with default config if none exists
-    if (!currentConfig) {
-      const defaultConfig = addConfig({
-        model: "gpt-4o",
-        systemPrompt: "You are a helpful AI assistant.",
-        toolSlugs: [],
-        usePiJudge: false,
-      })
-      setCurrentConfig(defaultConfig)
-    }
-  }, [currentConfig, addConfig, setCurrentConfig])
 
   useEffect(() => {
     if (pendingConfigLoad) {
