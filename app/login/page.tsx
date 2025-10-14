@@ -2,16 +2,18 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import Link from "next/link"
 import { auth } from "@/auth"
+import { headers } from 'next/headers';
 
 const AUTH_HOST = process.env.AUTH_HOST || 'https://withpi.ai'
-const HOST = process.env.HOST || process.env.NEXTAUTH_URL || 'http://localhost:3000'
 
 export default async function LoginPage() {
-  const session = await auth()
+  const session = await auth();
+  const allHeaders = await headers();
+  const hostName = allHeaders.get('host');
   console.log(session)
-
+  const host = hostName?.startsWith('localhost') ? `http://${hostName}` : `https://${hostName}`
   const queryParams = new URLSearchParams({
-    redirectTo: HOST
+    redirectTo: host
   })
   const redirectUrl = `${AUTH_HOST}/login?${queryParams}`
 
