@@ -10,7 +10,6 @@ export default async function LoginPage() {
   const session = await auth();
   const allHeaders = await headers();
   const hostName = allHeaders.get('host');
-  console.log(session)
   const host = hostName?.startsWith('localhost') ? `http://${hostName}` : `https://${hostName}`
   const queryParams = new URLSearchParams({
     redirectTo: host
