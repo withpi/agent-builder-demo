@@ -5,10 +5,20 @@ import { useAgent } from "@/lib/agent-context"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Eye, Award, Clock, DollarSign, ListOrdered, Wrench, MessageSquare, Lightbulb } from "lucide-react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { StepCard } from "./step-card"
-import { ScrollArea } from "@/components/ui/scroll-area"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { Award, Clock, DollarSign, ListOrdered, Wrench, MessageSquare, Lightbulb } from "lucide-react"
+
+// Helper function to get the final response from a trace
+const getFinalResponse = (trace: any): string => {
+  const responseStep = trace.steps.find((step: any) => step.type === "RESPONSE")
+  return responseStep?.content || ""
+}
+
+// Helper function to truncate text with ellipsis
+const truncateText = (text: string, maxLength: number = 100): string => {
+  if (text.length <= maxLength) return text
+  return text.substring(0, maxLength) + "..."
+}
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 type FilterType = "all" | "response" | "thinking" | "steps" | "latency" | "cost" | string // string for tool names like "tool:search"
@@ -16,10 +26,9 @@ type FilterType = "all" | "response" | "thinking" | "steps" | "latency" | "cost"
 export function EvaluateAgentPanel({
   onLoadConfigAndInput,
 }: {
-  onLoadConfigAndInput?: (configId: string, input: string) => void
+  onLoadConfigAndInput?: (configId: string, input: string, traceId?: string) => void
 }) {
   const { traces, configs, rubrics, getUniqueToolNames } = useAgent()
-  const [selectedTrace, setSelectedTrace] = useState<string | null>(null)
   const [filter, setFilter] = useState<FilterType>("all")
 
   const toolNames = getUniqueToolNames()
@@ -77,7 +86,6 @@ export function EvaluateAgentPanel({
 
   const uniqueInputs = Array.from(new Set(traces.map((t) => t.input)))
 
-  const selectedTraceData = traces.find((t) => t.id === selectedTrace)
 
   const calculateTraceScore = (trace: (typeof traces)[0], filterType: FilterType = "all") => {
     let relevantSteps = trace.steps.filter((s) => s.score && !s.score.isLoading)
@@ -175,7 +183,8 @@ export function EvaluateAgentPanel({
   const FilterIcon = getFilterIcon(filter)
 
   return (
-    <div className="h-full overflow-y-auto p-6">
+    <TooltipProvider>
+      <div className="h-full overflow-y-auto p-6">
       <div className="mb-6">
         <div className="flex items-center justify-between mb-2">
           <h2 className="text-2xl font-bold">Evaluate Agent</h2>
@@ -279,45 +288,94 @@ export function EvaluateAgentPanel({
                         {configAverages && (
                           <div className="flex flex-wrap gap-2 pt-2 border-t">
                             {filter === "steps" && configAverages.avgStepCount !== null && (
-                              <Badge variant="default" className="gap-1 text-xs">
-                                <ListOrdered className="w-3 h-3" />
-                                {configAverages.avgStepCount} steps
-                              </Badge>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Badge variant="default" className="gap-1 text-xs">
+                                    <ListOrdered className="w-3 h-3" />
+                                    {configAverages.avgStepCount} steps
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Average # of Steps: {configAverages.avgStepCount}</p>
+                                </TooltipContent>
+                              </Tooltip>
                             )}
                             {filter === "latency" && configAverages.avgLatency !== null && (
-                              <Badge variant="default" className="gap-1 text-xs">
-                                <Clock className="w-3 h-3" />
-                                {configAverages.avgLatency}s
-                              </Badge>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Badge variant="default" className="gap-1 text-xs">
+                                    <Clock className="w-3 h-3" />
+                                    {configAverages.avgLatency}s
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Average Latency: {configAverages.avgLatency}s</p>
+                                </TooltipContent>
+                              </Tooltip>
                             )}
                             {filter === "cost" && configAverages.avgCost !== null && (
-                              <Badge variant="default" className="gap-1 text-xs">
-                                <DollarSign className="w-3 h-3" />${configAverages.avgCost}
-                              </Badge>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Badge variant="default" className="gap-1 text-xs">
+                                    <DollarSign className="w-3 h-3" />${configAverages.avgCost}
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Average Cost: ${configAverages.avgCost}</p>
+                                </TooltipContent>
+                              </Tooltip>
                             )}
                             {!["steps", "latency", "cost"].includes(filter) && configAverages.avgScore !== null && (
-                              <Badge variant="default" className="gap-1 text-xs">
-                                <FilterIcon className="w-3 h-3" />
-                                {configAverages.avgScore}%
-                              </Badge>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Badge variant="default" className="gap-1 text-xs">
+                                    <FilterIcon className="w-3 h-3" />
+                                    {configAverages.avgScore}%
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Average Judge Score: {configAverages.avgScore}%</p>
+                                </TooltipContent>
+                              </Tooltip>
                             )}
                             {/* Show other metrics as secondary */}
                             {filter !== "steps" && configAverages.avgStepCount !== null && (
-                              <Badge variant="outline" className="gap-1 text-xs">
-                                <ListOrdered className="w-3 h-3" />
-                                {configAverages.avgStepCount} steps
-                              </Badge>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Badge variant="outline" className="gap-1 text-xs">
+                                    <ListOrdered className="w-3 h-3" />
+                                    {configAverages.avgStepCount} steps
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Average # of Steps: {configAverages.avgStepCount}</p>
+                                </TooltipContent>
+                              </Tooltip>
                             )}
                             {filter !== "latency" && configAverages.avgLatency !== null && (
-                              <Badge variant="outline" className="gap-1 text-xs">
-                                <Clock className="w-3 h-3" />
-                                {configAverages.avgLatency}s
-                              </Badge>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Badge variant="outline" className="gap-1 text-xs">
+                                    <Clock className="w-3 h-3" />
+                                    {configAverages.avgLatency}s
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Average Latency: {configAverages.avgLatency}s</p>
+                                </TooltipContent>
+                              </Tooltip>
                             )}
                             {filter !== "cost" && configAverages.avgCost !== null && (
-                              <Badge variant="outline" className="gap-1 text-xs">
-                                <DollarSign className="w-3 h-3" />${configAverages.avgCost}
-                              </Badge>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Badge variant="outline" className="gap-1 text-xs">
+                                    <DollarSign className="w-3 h-3" />${configAverages.avgCost}
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Average Cost: ${configAverages.avgCost}</p>
+                                </TooltipContent>
+                              </Tooltip>
                             )}
                           </div>
                         )}
@@ -332,7 +390,11 @@ export function EvaluateAgentPanel({
                       const traceCost = latestTrace ? calculateCost(latestTrace) : null
 
                       return (
-                        <TableCell key={idx}>
+                        <TableCell 
+                          key={idx}
+                          className={latestTrace ? "cursor-pointer hover:bg-muted/50 transition-colors" : ""}
+                          onClick={latestTrace ? () => onLoadConfigAndInput?.(config.id, input, latestTrace.id) : undefined}
+                        >
                           {latestTrace ? (
                             <div className="space-y-2">
                               <div className="flex items-center gap-2 flex-wrap">
@@ -386,15 +448,12 @@ export function EvaluateAgentPanel({
                                   </Badge>
                                 )}
                               </div>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="w-full gap-2 bg-transparent"
-                                onClick={() => setSelectedTrace(latestTrace.id)}
-                              >
-                                <Eye className="w-4 h-4" />
-                                View Trace
-                              </Button>
+                              <div className="text-xs text-muted-foreground bg-muted/30 p-2 rounded border">
+                                {(() => {
+                                  const finalResponse = getFinalResponse(latestTrace)
+                                  return finalResponse ? truncateText(finalResponse) : "No response available"
+                                })()}
+                              </div>
                             </div>
                           ) : (
                             <Button
@@ -417,36 +476,7 @@ export function EvaluateAgentPanel({
         </div>
       )}
 
-      <Dialog open={!!selectedTrace} onOpenChange={() => setSelectedTrace(null)}>
-        <DialogContent className="max-w-4xl max-h-[80vh]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-3">
-              <span>Trace Details</span>
-              {selectedTraceData && calculateTraceScore(selectedTraceData, filter) !== null && (
-                <Badge variant="outline" className="gap-1 text-base">
-                  <FilterIcon className="w-4 h-4" />
-                  {calculateTraceScore(selectedTraceData, filter)}%
-                </Badge>
-              )}
-            </DialogTitle>
-          </DialogHeader>
-          {selectedTraceData && (
-            <div className="space-y-4">
-              <div className="p-4 bg-muted rounded-lg">
-                <div className="text-sm font-medium mb-1">Input</div>
-                <div className="text-sm">{selectedTraceData.input}</div>
-              </div>
-              <ScrollArea className="h-[500px]">
-                <div className="space-y-3 pr-4">
-                  {selectedTraceData.steps.map((step) => (
-                    <StepCard key={step.id} step={step} traceId={selectedTraceData.id} />
-                  ))}
-                </div>
-              </ScrollArea>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
+    </TooltipProvider>
   )
 }

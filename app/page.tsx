@@ -16,7 +16,7 @@ import { CodeSnippetModal } from "@/components/code-snippet-modal"
 export default function Home() {
   const [activeTab, setActiveTab] = useState("build-agent")
   const [openCodeModal, setOpenCodeModal] = useState<string | null>(null)
-  const [pendingConfigLoad, setPendingConfigLoad] = useState<{ configId: string; input: string } | null>(null)
+  const [pendingConfigLoad, setPendingConfigLoad] = useState<{ configId: string; input: string; traceId?: string } | null>(null)
 
   const codeSnippets = {
     feedback: `// How feedback is organized in Pi Agent Builder
@@ -265,8 +265,8 @@ DO NOT proceed with different actions. RETRY with corrections.\`
 
           <TabsContent value="evaluate-agent" className="flex-1 overflow-hidden mt-0">
             <EvaluateAgentPanel
-              onLoadConfigAndInput={(configId: string, input: string) => {
-                setPendingConfigLoad({ configId, input })
+              onLoadConfigAndInput={(configId: string, input: string, traceId?: string) => {
+                setPendingConfigLoad({ configId, input, traceId })
                 setActiveTab("build-agent")
               }}
             />
@@ -409,6 +409,7 @@ DO NOT proceed with different actions. RETRY with corrections.\`
               description="Here's how to annotate your agent's traces with feedback"
               code={codeSnippets.feedback}
               fileName="components/step-card.tsx"
+              githubUrl="https://github.com/withpi/Pi-Agent-Builder/blob/main/components/step-card.tsx"
             />
 
             <CodeSnippetModal
@@ -418,6 +419,7 @@ DO NOT proceed with different actions. RETRY with corrections.\`
               description="Here's how to use Pi Judge to evaluate and compare agents"
               code={codeSnippets.evaluate}
               fileName="lib/agent-context.tsx"
+              githubUrl="https://github.com/withpi/Pi-Agent-Builder/blob/main/lib/agent-context.tsx"
             />
 
             <CodeSnippetModal
@@ -427,6 +429,7 @@ DO NOT proceed with different actions. RETRY with corrections.\`
               description="Here's how to use Pi Judge to create alignment controls"
               code={codeSnippets.align}
               fileName="app/api/agent/run/route.ts"
+              githubUrl="https://github.com/withpi/Pi-Agent-Builder/blob/main/app/api/agent/run/route.ts"
             />
           </TabsContent>
         </Tabs>

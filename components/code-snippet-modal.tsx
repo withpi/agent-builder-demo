@@ -11,9 +11,10 @@ interface CodeSnippetModalProps {
   description: string
   code: string
   fileName?: string
+  githubUrl?: string
 }
 
-export function CodeSnippetModal({ open, onOpenChange, title, description, code, fileName }: CodeSnippetModalProps) {
+export function CodeSnippetModal({ open, onOpenChange, title, description, code, fileName, githubUrl }: CodeSnippetModalProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-5xl max-h-[85vh] overflow-hidden flex flex-col">
@@ -23,8 +24,19 @@ export function CodeSnippetModal({ open, onOpenChange, title, description, code,
         </DialogHeader>
         <div className="overflow-y-auto flex-1 -mx-6 px-6">
           {fileName && (
-            <div className=" text-sm font-mono text-muted-foreground bg-muted px-4 py-2 rounded-t-lg border-b">
-              {fileName}
+            <div className="text-sm font-mono text-muted-foreground bg-muted px-4 py-2 rounded-t-lg border-b">
+              {githubUrl ? (
+                <a
+                  href={githubUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-primary hover:underline transition-colors"
+                >
+                  {fileName}
+                </a>
+              ) : (
+                fileName
+              )}
             </div>
           )}
           <SyntaxHighlighter
