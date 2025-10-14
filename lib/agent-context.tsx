@@ -92,7 +92,7 @@ interface AgentContextType {
   configs: AgentConfig[]
   traces: AgentTrace[]
   rubrics: Rubric[]
-  currentConfig: AgentConfig | null
+  currentConfig: AgentConfig
   currentTrace: AgentTrace | null
   updateConfig: (id: string, updates: Partial<AgentConfig>) => void
   setCurrentConfig: (config: AgentConfig | null) => void
