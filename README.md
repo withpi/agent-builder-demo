@@ -128,8 +128,8 @@ Once you add a new tool, it’s instantly available to the agent without further
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/yourusername/pi-agent-builder.git
-   cd pi-agent-builder
+   git clone https://github.com/withpi/Pi-Agent-Builder
+   cd Pi-Agent-Builder
    ```
 
 2. Install dependencies:
