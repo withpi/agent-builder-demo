@@ -271,7 +271,7 @@ export function AgentConversation({
           // Include tool-specific rubrics that match the app slugs
           if (!rubric.toolName) return false
           return activeConfig.toolSlugs.some(
-            (appSlug) => rubric.toolName?.startsWith(`${appSlug}.`) || rubric.toolName?.startsWith(`${appSlug}-`),
+            (appSlug) => rubric.toolName == appSlug,
           )
         })
         console.log(

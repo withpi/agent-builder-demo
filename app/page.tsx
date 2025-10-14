@@ -7,10 +7,10 @@ import { RubricBuilderPanel } from "@/components/rubric-builder-panel"
 import { EvaluateAgentPanel } from "@/components/evaluate-agent-panel"
 import { AgentProvider } from "@/lib/agent-context"
 import { MessageCircle, Calendar, Github, BookOpen, Code } from "lucide-react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import Image from 'next/image';
 import piLogo from '@/public/pi-logo.svg';
 import Link from "next/link";
+import { CodeSnippetModal } from "@/components/code-snippet-modal"
 
 
 export default function Home() {
@@ -308,41 +308,29 @@ const alignment = await pi.monitor.alignment({
             </div>
 
             {/* Code Modals */}
-            <Dialog open={openCodeModal === "feedback"} onOpenChange={(open) => !open && setOpenCodeModal(null)}>
-              <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
-                <DialogHeader>
-                  <DialogTitle>Give Feedback - Code Example</DialogTitle>
-                  <DialogDescription>Here's how to annotate your agent's traces with feedback</DialogDescription>
-                </DialogHeader>
-                <pre className="bg-muted p-4 rounded-lg overflow-x-auto text-sm">
-                  <code>{codeSnippets.feedback}</code>
-                </pre>
-              </DialogContent>
-            </Dialog>
+            <CodeSnippetModal
+              open={openCodeModal === "feedback"}
+              onOpenChange={(open) => !open && setOpenCodeModal(null)}
+              title="Give Feedback - Code Example"
+              description="Here's how to annotate your agent's traces with feedback"
+              code={codeSnippets.feedback}
+            />
 
-            <Dialog open={openCodeModal === "evaluate"} onOpenChange={(open) => !open && setOpenCodeModal(null)}>
-              <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
-                <DialogHeader>
-                  <DialogTitle>Evaluate Agents - Code Example</DialogTitle>
-                  <DialogDescription>Here's how to use Pi Judge to evaluate and compare agents</DialogDescription>
-                </DialogHeader>
-                <pre className="bg-muted p-4 rounded-lg overflow-x-auto text-sm">
-                  <code>{codeSnippets.evaluate}</code>
-                </pre>
-              </DialogContent>
-            </Dialog>
+            <CodeSnippetModal
+              open={openCodeModal === "evaluate"}
+              onOpenChange={(open) => !open && setOpenCodeModal(null)}
+              title="Evaluate Agents - Code Example"
+              description="Here's how to use Pi Judge to evaluate and compare agents"
+              code={codeSnippets.evaluate}
+            />
 
-            <Dialog open={openCodeModal === "align"} onOpenChange={(open) => !open && setOpenCodeModal(null)}>
-              <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
-                <DialogHeader>
-                  <DialogTitle>Align Your Agent - Code Example</DialogTitle>
-                  <DialogDescription>Here's how to use Pi Judge to create alignment controls</DialogDescription>
-                </DialogHeader>
-                <pre className="bg-muted p-4 rounded-lg overflow-x-auto text-sm">
-                  <code>{codeSnippets.align}</code>
-                </pre>
-              </DialogContent>
-            </Dialog>
+            <CodeSnippetModal
+              open={openCodeModal === "align"}
+              onOpenChange={(open) => !open && setOpenCodeModal(null)}
+              title="Align Your Agent - Code Example"
+              description="Here's how to use Pi Judge to create alignment controls"
+              code={codeSnippets.align}
+            />
           </TabsContent>
         </Tabs>
       </div>
