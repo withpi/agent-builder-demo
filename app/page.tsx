@@ -6,7 +6,7 @@ import { AgentBuilderPanel } from "@/components/agent-builder-panel"
 import { RubricBuilderPanel } from "@/components/rubric-builder-panel"
 import { EvaluateAgentPanel } from "@/components/evaluate-agent-panel"
 import { AgentProvider } from "@/lib/agent-context"
-import { MessageCircle, Calendar, Github, BookOpen, Code } from "lucide-react"
+import { MessageCircle, Calendar, Github, BookOpen, Code, Mail } from "lucide-react"
 import Image from 'next/image';
 import piLogo from '@/public/pi-logo.svg';
 import Link from "next/link";
@@ -222,6 +222,14 @@ DO NOT proceed with different actions. RETRY with corrections.\`
                 >
                   <Calendar className="w-4 h-4" />
                   Schedule
+                </a>
+                <a
+                  href="mailto:dhruv@withpi.ai"
+                  className="flex items-center gap-1.5 text-sm hover:text-primary transition-colors"
+                  title="Send us an email"
+                >
+                  <Mail className="w-4 h-4" />
+                  Email
                 </a>
               </div>
 

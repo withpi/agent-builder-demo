@@ -1,20 +1,30 @@
 # Pi Agent Builder
 
-Placeholder section
+[**Try the live demo →**](https://agent.withpi.ai) *(coming soon)*
 
-**Pi Agent Builder** allows users to build **reinforced LLM agents** using **Pi Judges** and a set of preconfigured tools.
-It’s a simple, extensible framework for experimenting with **alignment-guided AI agents** that can browse the web, evaluate content, and improve over time using preference feedback.
+**Pi Agent Builder** allows users to build **reinforced LLM agents** using **[Pi Judges](https://code.withpi.ai/score/writing_rubrics)** and a set of preconfigured tools.
+
+Turn your natural language feedback and observations into a distilled set of principles. Pi Agent Builder lets you deterministically quantify those principles — not only to evaluate different configurations of your agent (system prompt, model, tools...), but also to establish guardrails that allow your agent to self-correct online whenever the judge flags that it's making a mistake.
+
+This repository is fully **open source** and serves as a **template** for anyone looking to build agents that can be easily steered with a small amount of preference data.
 
 ---
 
 ## 🚀 Overview
 
-Pi Agent Builder demonstrates how **aligned AI judges** can be used to **steer autonomous agents** online and improve the quality of their reasoning, actions, and outputs.
+Pi Agent Builder demonstrates how **[aligned AI judges](https://code.withpi.ai/score/writing_rubrics)** can be used to **steer autonomous agents** and improve the quality of their reasoning, actions, and outputs.
 
-Using **Pi Labs** scoring models, users can transform just a few human ratings into **automatic preference enforcement** — turning simple feedback into consistent behavioral improvements.
+Instead of relying purely on manual evaluation or raw LLM output, **[Pi Judges](https://code.withpi.ai/score/writing_rubrics)** transform your feedback into **automatic preference enforcement** — turning simple observations into consistent behavioral improvements and real-time guardrails.
 
-This repository is fully **open source** and serves as a **template** for anyone looking to build agents that can be easily steered with a small amount of preference data.
-You can quickly create **any type of agent** by editing `/lib/tools.ts` to add, remove, or customize tools.
+As teams debug their agent's traces, the number of observations, rules, and edge cases that need to be captured quickly pile up — and you can't fit all of that into a system prompt. **Pi provides an alternative architecture**: instead of trying to prescribe everything upfront in a prompt, you equip your agent with **principles that it can lean on to course-correct at execution time**.
+
+Teams don't need to invest in the expensive process of writing and rewriting "LLM-as-a-judge" prompts every time they discover a new failure mode. **Just provide the piece of feedback when you find an issue, and Pi will turn that into judges for you** — automatically annotating that issue in every other trace and enabling your agent to self-correct going forward.
+
+Using **Pi Labs** scoring models, you can:
+* **Evaluate** different agent configurations to find what works best
+* **Enforce and self-correct** — establish guardrails that maintain consistent behavior aligned with your preferences and allow agents to course-correct in real-time when they drift
+
+This framework is fully **extensible** — you can quickly create **any type of agent** by editing `/lib/tools.ts` to add, remove, or customize tools.
 
 ---
 
