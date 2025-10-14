@@ -1,6 +1,6 @@
 # Pi Agent Builder
 
-**Try the live demo →** *(link coming soon)*
+**[Try the live demo →](https://v0-agent-trace-page.vercel.app/)**
 
 **Pi Agent Builder** allows users to build **reinforced LLM agents** using **[Pi Judges](https://code.withpi.ai/score/writing_rubrics)** and a set of preconfigured tools.
 
