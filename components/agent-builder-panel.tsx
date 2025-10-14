@@ -9,10 +9,10 @@ export function AgentBuilderPanel({
   pendingConfigLoad,
   onConfigLoaded,
 }: {
-  pendingConfigLoad?: { configId: string; input: string } | null
+  pendingConfigLoad?: { configId: string; input: string; traceId?: string } | null
   onConfigLoaded?: () => void
 }) {
-  const { currentConfig, setCurrentConfig, rubrics, configs } = useAgent()
+  const { currentConfig, setCurrentConfig, rubrics, configs, traces, setCurrentTrace } = useAgent()
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [usePiJudge, setUsePiJudge] = useState(true)
   const [pendingInput, setPendingInput] = useState<string | null>(null)
@@ -24,10 +24,19 @@ export function AgentBuilderPanel({
         setCurrentConfig(configToLoad)
         setUsePiJudge(configToLoad.usePiJudge || false)
         setPendingInput(pendingConfigLoad.input)
+        
+        // If a specific trace ID is provided, load that trace
+        if (pendingConfigLoad.traceId) {
+          const traceToLoad = traces.find((t) => t.id === pendingConfigLoad.traceId)
+          if (traceToLoad) {
+            setCurrentTrace(traceToLoad)
+          }
+        }
+        
         onConfigLoaded?.()
       }
     }
-  }, [pendingConfigLoad, configs, setCurrentConfig, onConfigLoaded])
+  }, [pendingConfigLoad, configs, setCurrentConfig, traces, setCurrentTrace, onConfigLoaded])
 
   return (
     <div className="flex h-full overflow-hidden">

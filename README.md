@@ -1,18 +1,34 @@
 # Pi Agent Builder
 
-**Pi Agent Builder** allows users to build **reinforced LLM agents** using **Pi Judges** and a set of preconfigured tools.
-It’s a simple, extensible framework for experimenting with **alignment-guided AI agents** that can browse the web, evaluate content, and improve over time using preference feedback.
+**[Try the live demo →](https://v0-agent-trace-page.vercel.app/)**
+
+**Pi Agent Builder** allows users to build **reinforced LLM agents** using **[Pi Judges](https://code.withpi.ai/score/writing_rubrics)** and a set of preconfigured tools.
+
+Turn your natural language feedback into distilled principles that deterministically guide your agent — not only to evaluate different configurations (system prompt, model, tools...), but also to establish guardrails for real-time self-correction.
+
+This repository is fully **open source** and serves as a **template** for building easily steerable agents.
 
 ---
 
 ## 🚀 Overview
 
-Pi Agent Builder demonstrates how **aligned AI judges** can be used to **steer autonomous agents** online and improve the quality of their reasoning, actions, and outputs.
+As teams debug agent traces, observations, rules, and edge cases pile up — **you can't fit all of that into a system prompt**. Teams also shouldn't need to invest in the expensive process of **writing and rewriting "LLM-as-a-judge" prompts** every time they discover a new failure mode.
 
-Using **Pi Labs** scoring models, users can transform just a few human ratings into **automatic preference enforcement** — turning simple feedback into consistent behavioral improvements.
+**Pi provides an alternative architecture**: instead of prescribing everything upfront in a prompt, equip your agent with principles it can lean on to course-correct at execution time. **Just provide feedback when you find issues, and Pi turns that into judges** — automatically annotating problems across all traces and enabling self-correction.
 
-This repository is fully **open source** and serves as a **template** for anyone looking to build agents that can be easily steered with a small amount of preference data.
-You can quickly create **any type of agent** by editing `/lib/tools.ts` to add, remove, or customize tools.
+**[Pi Judges](https://code.withpi.ai/score/writing_rubrics)** transform your feedback into automatic preference enforcement, allowing you to:
+* **Evaluate** different agent configurations to find what works best
+* **Enforce and self-correct** — establish guardrails that maintain consistent behavior and allow agents to course-correct in real-time when they drift
+
+This framework is fully **extensible** — quickly create any type of agent by editing `/lib/tools.ts` to add, remove, or customize tools.
+
+---
+
+
+## 📹 See How It Works
+
+- [**Pi Turns your Feedback into Judges**](https://youtu.be/a3pyUJfpI0k)
+- [**Your Judges help your agent self-heal**](https://youtu.be/VXEdSjYojM0)
 
 ---
 

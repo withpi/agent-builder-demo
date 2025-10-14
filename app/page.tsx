@@ -6,7 +6,7 @@ import { AgentBuilderPanel } from "@/components/agent-builder-panel"
 import { RubricBuilderPanel } from "@/components/rubric-builder-panel"
 import { EvaluateAgentPanel } from "@/components/evaluate-agent-panel"
 import { AgentProvider } from "@/lib/agent-context"
-import { MessageCircle, Calendar, Github, BookOpen, Code } from "lucide-react"
+import { MessageCircle, Calendar, Github, BookOpen, Code, Mail } from "lucide-react"
 import Image from 'next/image';
 import piLogo from '@/public/pi-logo.svg';
 import Link from "next/link";
@@ -16,7 +16,7 @@ import { CodeSnippetModal } from "@/components/code-snippet-modal"
 export default function Home() {
   const [activeTab, setActiveTab] = useState("build-agent")
   const [openCodeModal, setOpenCodeModal] = useState<string | null>(null)
-  const [pendingConfigLoad, setPendingConfigLoad] = useState<{ configId: string; input: string } | null>(null)
+  const [pendingConfigLoad, setPendingConfigLoad] = useState<{ configId: string; input: string; traceId?: string } | null>(null)
 
   const codeSnippets = {
     feedback: `// How feedback is organized in Pi Agent Builder
@@ -223,6 +223,14 @@ DO NOT proceed with different actions. RETRY with corrections.\`
                   <Calendar className="w-4 h-4" />
                   Schedule
                 </a>
+                <a
+                  href="mailto:dhruv@withpi.ai"
+                  className="flex items-center gap-1.5 text-sm hover:text-primary transition-colors"
+                  title="Send us an email"
+                >
+                  <Mail className="w-4 h-4" />
+                  Email
+                </a>
               </div>
 
               {/* Use the code section */}
@@ -265,8 +273,8 @@ DO NOT proceed with different actions. RETRY with corrections.\`
 
           <TabsContent value="evaluate-agent" className="flex-1 overflow-hidden mt-0">
             <EvaluateAgentPanel
-              onLoadConfigAndInput={(configId: string, input: string) => {
-                setPendingConfigLoad({ configId, input })
+              onLoadConfigAndInput={(configId: string, input: string, traceId?: string) => {
+                setPendingConfigLoad({ configId, input, traceId })
                 setActiveTab("build-agent")
               }}
             />
@@ -276,29 +284,17 @@ DO NOT proceed with different actions. RETRY with corrections.\`
             <div className="max-w-6xl mx-auto space-y-12">
               {/* Part 1: Give your agent feedback */}
               <div className="flex gap-8 items-center">
-                <div className="flex-[0.6] aspect-video bg-muted rounded-lg flex items-center justify-center border-2 border-dashed">
-                  <div className="text-center space-y-2">
-                    <svg
-                      className="w-12 h-12 mx-auto text-muted-foreground"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"
-                      />
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                      />
-                    </svg>
-                    <p className="text-muted-foreground text-sm">Video Placeholder</p>
-                  </div>
+                <div className="flex-[0.6] aspect-video rounded-lg overflow-hidden">
+                  <iframe
+                    width="100%"
+                    height="100%"
+                    src="https://www.youtube.com/embed/a3pyUJfpI0k"
+                    title="Give your agent feedback"
+                    frameBorder="0"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                    className="w-full h-full"
+                  ></iframe>
                 </div>
                 <div className="flex-1 space-y-4">
                   <h2 className="text-3xl font-bold">Give your agent feedback. Watch that turn into judges</h2>
@@ -318,8 +314,9 @@ DO NOT proceed with different actions. RETRY with corrections.\`
 
               {/* Part 2: Your feedback turns into evaluations */}
               <div className="flex gap-8 items-center">
-                <div className="flex-[0.6] aspect-video bg-muted rounded-lg flex items-center justify-center border-2 border-dashed">
-                  <div className="text-center space-y-2">
+                <div className="flex-[0.6] aspect-video bg-muted rounded-lg flex items-center justify-center border-2 border-dashed relative">
+                  <div className="absolute inset-0 bg-black bg-opacity-20 rounded-lg"></div>
+                  <div className="text-center space-y-2 relative z-10">
                     <svg
                       className="w-12 h-12 mx-auto text-muted-foreground"
                       fill="none"
@@ -339,7 +336,7 @@ DO NOT proceed with different actions. RETRY with corrections.\`
                         d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
                       />
                     </svg>
-                    <p className="text-muted-foreground text-sm">Video Placeholder</p>
+                    <p className="text-muted-foreground text-sm font-medium">Coming Soon</p>
                   </div>
                 </div>
                 <div className="flex-1 space-y-4">
@@ -360,29 +357,17 @@ DO NOT proceed with different actions. RETRY with corrections.\`
 
               {/* Part 3: Your feedback improves your agent */}
               <div className="flex gap-8 items-center">
-                <div className="flex-[0.6] aspect-video bg-muted rounded-lg flex items-center justify-center border-2 border-dashed">
-                  <div className="text-center space-y-2">
-                    <svg
-                      className="w-12 h-12 mx-auto text-muted-foreground"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"
-                      />
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                      />
-                    </svg>
-                    <p className="text-muted-foreground text-sm">Video Placeholder</p>
-                  </div>
+                <div className="flex-[0.6] aspect-video rounded-lg overflow-hidden">
+                  <iframe
+                    width="100%"
+                    height="100%"
+                    src="https://www.youtube.com/embed/VXEdSjYojM0"
+                    title="Use Pi Judge to align your agent"
+                    frameBorder="0"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                    className="w-full h-full"
+                  ></iframe>
                 </div>
                 <div className="flex-1 space-y-4">
                   <h2 className="text-3xl font-bold">Use Pi Judge to align your agent</h2>
@@ -409,6 +394,7 @@ DO NOT proceed with different actions. RETRY with corrections.\`
               description="Here's how to annotate your agent's traces with feedback"
               code={codeSnippets.feedback}
               fileName="components/step-card.tsx"
+              githubUrl="https://github.com/withpi/Pi-Agent-Builder/blob/main/components/step-card.tsx"
             />
 
             <CodeSnippetModal
@@ -418,6 +404,7 @@ DO NOT proceed with different actions. RETRY with corrections.\`
               description="Here's how to use Pi Judge to evaluate and compare agents"
               code={codeSnippets.evaluate}
               fileName="lib/agent-context.tsx"
+              githubUrl="https://github.com/withpi/Pi-Agent-Builder/blob/main/lib/agent-context.tsx"
             />
 
             <CodeSnippetModal
@@ -427,6 +414,7 @@ DO NOT proceed with different actions. RETRY with corrections.\`
               description="Here's how to use Pi Judge to create alignment controls"
               code={codeSnippets.align}
               fileName="app/api/agent/run/route.ts"
+              githubUrl="https://github.com/withpi/Pi-Agent-Builder/blob/main/app/api/agent/run/route.ts"
             />
           </TabsContent>
         </Tabs>

@@ -440,6 +440,13 @@ export function AgentConversation({
         </div>
         <div ref={scrollRef} className="relative flex-1 overflow-y-auto px-6 pb-6">
           <div className="w-full space-y-3 pr-4">
+            {!currentTrace && !isRunning && (
+              <div className="flex items-center justify-center h-full min-h-[200px]">
+                <div className="text-center text-muted-foreground">
+                  <p className="text-sm">Enter a user prompt and run your agent to start rating traces</p>
+                </div>
+              </div>
+            )}
             {currentTrace?.steps.map((step) => (
               <StepCard key={step.id} step={step} traceId={currentTrace.id} />
             ))}

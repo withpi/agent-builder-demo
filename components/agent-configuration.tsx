@@ -5,8 +5,9 @@ import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import { ChevronLeft, Settings, Plus, X, Loader2, Download, ChevronDown } from "lucide-react"
+import { ChevronLeft, Settings, Plus, X, Loader2, Download, ChevronDown, ChevronDownIcon, ChevronUpIcon, Wand2 } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { useAgent } from "@/lib/agent-context"
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
@@ -35,6 +36,7 @@ export function AgentConfiguration({
   const [customEndpoint, setCustomEndpoint] = useState("")
   const [customApiKey, setCustomApiKey] = useState("")
   const [isExportDropdownOpen, setIsExportDropdownOpen] = useState(false)
+  const [isSystemPromptExpanded, setIsSystemPromptExpanded] = useState(false)
   const { toast } = useToast()
 
   const getLatestRubricsByAction = (toolSlug: string) => {
@@ -145,32 +147,42 @@ export function AgentConfiguration({
           <div className={'p-4'}>
             <Label className="text-base">Model</Label>
 
-            <div className="space-y-2 mt-2">
-              <Label className="text-sm">Select a model:</Label>
-              <Select
-                value={currentConfig.model}
-                onValueChange={(value: string) => {
-                  if (value === "custom-endpoint") {
-                    setIsCustomEndpointModalOpen(true)
-                  } else {
-                    updateConfig(currentConfig.id, { model: value as "gpt-4o" | "gpt-4o-mini" })
-                  }
-                }}
-              >
-                <SelectTrigger id="model">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="gpt-4o">GPT-4o</SelectItem>
-                  <SelectItem value="gpt-4o-mini">GPT-4o-mini</SelectItem>
-                  <SelectItem value="custom-endpoint">Add your own inference endpoint (coming soon)</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="mt-2">
+              <div className="flex items-center gap-2">
+                <Label className="text-sm">Select a model:</Label>
+                <Select
+                  value={currentConfig.model}
+                  onValueChange={(value: string) => {
+                    if (value === "custom-endpoint") {
+                      setIsCustomEndpointModalOpen(true)
+                    } else {
+                      updateConfig(currentConfig.id, { model: value as "gpt-4o" | "gpt-4o-mini" })
+                    }
+                  }}
+                >
+                  <SelectTrigger id="model" className="w-40">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="gpt-4o">GPT-4o</SelectItem>
+                    <SelectItem value="gpt-4o-mini">GPT-4o-mini</SelectItem>
+                    <SelectItem value="custom-endpoint">Add your own inference endpoint (coming soon)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <div className="space-y-2 mt-3">
               <Label className="text-sm">Train a model (coming soon)</Label>
               <p className="text-xs text-muted-foreground">
-                Pi judges act as your reward model to tune a model using Reinforcement Learning with just a few clicks
+                Pi judges act as your reward model to tune a model using Reinforcement Learning (RL) with just a few clicks.  
+                <a 
+                  href="https://colab.research.google.com/github/withpi/cookbook-withpi/blob/main/colabs/PiScorer_as_GRPO_Reward_Function.ipynb#scrollTo=bTnL_tJnzh2L" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="text-primary underline hover:text-primary/80"
+                >
+                   See our GRPO code notebook to learn more
+                </a>
               </p>
             </div>
           </div>
@@ -188,14 +200,83 @@ export function AgentConfiguration({
             
           </div>
           <div className="p-4 pt-0 pb-6 space-y-2">
-            <Label htmlFor="system-prompt" className="text-base">System Prompt</Label>
-            <Textarea
-              id="system-prompt"
-              value={currentConfig.systemPrompt}
-              onChange={(e) => updateConfig(currentConfig.id, { systemPrompt: e.target.value })}
-              className="min-h-[200px] font-mono text-sm"
-              placeholder="Enter system prompt..."
-            />
+            <div className="flex items-center justify-between">
+              <Label htmlFor="system-prompt" className="text-base">System Prompt</Label>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="inline-block">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled
+                        className="h-7 gap-1.5 text-muted-foreground opacity-50 cursor-not-allowed"
+                      >
+                        <Wand2 className="w-3.5 h-3.5" />
+                        Optimize
+                      </Button>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent className="z-50">
+                    <p>(Coming soon) Use Pi judges to optimize your System Prompt</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+            <div className="relative">
+              <Textarea
+                id="system-prompt"
+                value={currentConfig.systemPrompt}
+                onChange={(e) => updateConfig(currentConfig.id, { systemPrompt: e.target.value })}
+                className={`font-mono text-sm transition-all duration-200 ${
+                  isSystemPromptExpanded 
+                    ? "min-h-[200px]" 
+                    : "min-h-[120px] max-h-[120px] overflow-hidden"
+                }`}
+                placeholder="Enter system prompt..."
+              />
+              {!isSystemPromptExpanded && (
+                <>
+                  <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-background to-transparent pointer-events-none" />
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setIsSystemPromptExpanded(true)}
+                          className="absolute bottom-1 right-1 h-6 w-6 bg-background/80 hover:bg-background border shadow-sm"
+                        >
+                          <ChevronDownIcon className="w-3 h-3" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Expand</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </>
+              )}
+              {isSystemPromptExpanded && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setIsSystemPromptExpanded(false)}
+                        className="absolute top-1 right-1 h-6 w-6 bg-background/80 hover:bg-background border shadow-sm"
+                      >
+                        <ChevronUpIcon className="w-3 h-3" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Collapse</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+            </div>
           </div>
 
           <div className="space-y-4 pb-6 px-4">
@@ -265,7 +346,7 @@ export function AgentConfiguration({
                 </div>
               )}
               <p className="text-xs text-muted-foreground">
-                Add extra tools by cloning the repo and modifying tools.ts
+                Add extra tools by cloning the repo and modifying <a href="https://github.com/withpi/Pi-Agent-Builder/blob/main/lib/tools.ts" target="_blank" rel="noopener noreferrer" className="hover:underline text-primary">tools.ts</a>
               </p>
             </div>
           </div>
