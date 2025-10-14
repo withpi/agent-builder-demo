@@ -1,0 +1,5 @@
+# Default owners for all files
+* @org/withpi
+
+# Specific owners for the `docs/` directory
+app/ @sidd2pir
