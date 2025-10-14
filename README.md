@@ -28,6 +28,13 @@ This framework is fully **extensible** — you can quickly create **any type of 
 
 ---
 
+## 📹 See How It Works
+
+- [**Pi Turns your Feedback into Judges**](https://youtu.be/a3pyUJfpI0k)
+- [**Your Judges help your agent self-heal**](https://youtu.be/VXEdSjYojM0)
+
+---
+
 ## 🧠 Core Concepts
 
 * **Reinforced Agents** – LLM agents guided by Pi Judges for preference-aligned behavior.
