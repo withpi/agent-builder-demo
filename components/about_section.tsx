@@ -26,7 +26,7 @@ export function AboutSection() {
           <div>
             <div className={'text-3xl font-semibold'}>Pi Agent Builder Demo</div>
             <div className={'text-gray-600 mt-2'}>
-              Get started with online RL agents in seconds
+              Get started aligning your agent with your feedback in seconds
             </div>
           </div>
           <div className={'pt-4'}>
@@ -62,7 +62,12 @@ export function AboutSection() {
               Open <span className={'text-blue-600'}>http://localhost:3000</span> with your browser to see the result.
             </div>
             <div className={'text-lg text-gray-600'}>
-              You can edit accessible tools by modifying <span className={'font-mono text-sm p-0.5 bg-gray-50 px-1'}>lib/tools.ts</span>
+              You can edit the tools your agent can use by modifying <a
+                href="https://github.com/withpi/Pi-Agent-Builder/blob/main/lib/tools.ts"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-mono text-sm p-0.5 bg-gray-50 px-1 text-blue-700 underline"
+              >lib/tools.ts</a>
             </div>
           </div>
           <div className={'space-y-6'}>
@@ -118,30 +123,17 @@ export function AboutSection() {
 
         {/* Part 2: Your feedback turns into evaluations */}
         <div className="flex gap-8 items-center">
-          <div className="flex-[0.6] aspect-video bg-muted rounded-lg flex items-center justify-center border-2 border-dashed relative">
-            <div className="absolute inset-0 bg-black bg-opacity-20 rounded-lg"></div>
-            <div className="text-center space-y-2 relative z-10">
-              <svg
-                className="w-12 h-12 mx-auto text-muted-foreground"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"
-                />
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-              <p className="text-muted-foreground text-sm font-medium">Coming Soon</p>
-            </div>
+          <div className="flex-[0.6] aspect-video rounded-lg overflow-hidden">
+            <iframe
+              width="100%"
+              height="100%"
+              src="https://www.youtube.com/embed/Ex-6Hlw_MXo"
+              title="Use Pi Judge to evaluate and compare agents"
+              frameBorder="0"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+              className="w-full h-full"
+            ></iframe>
           </div>
           <div className="flex-1 space-y-4">
             <h2 className="text-xl font-bold">Use Pi Judge to evaluate and compare agents</h2>
