@@ -10,6 +10,8 @@ import {
 } from "@/lib/utils/scoring-utils"
 import { waitUntil } from "@vercel/functions"
 import {AVAILABLE_TOOLS} from "@/lib/tools";
+import {auth} from "@/auth";
+import {unauthorized} from "next/navigation";
 
 export const maxDuration = 60
 
@@ -37,8 +39,12 @@ function filterTools(toolSlugs: keyof typeof AVAILABLE_TOOLS) {
   return Object.fromEntries(Object.entries(AVAILABLE_TOOLS).filter(([k, v]) => toolSlugs.includes(k)))
 }
 
-export async function POST(req: Request) {
+export const POST = auth(async function POST(req) {
   try {
+    if (!req.auth || !req.auth.user || !req.auth.user.email) {
+      // Only signed in accounts can do this.
+      unauthorized()
+    }
     const { config, input, traceId, externalUserId, toolNames, usePiJudge, rubrics } = await req.json()
 
     console.log("[v0] Starting agent with config:", {
@@ -727,4 +733,4 @@ Start your improved response immediately. Do not acknowledge this feedback, just
     console.error("[v0] API error:", error)
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unknown error" }, { status: 500 })
   }
-}
+});
