@@ -5,9 +5,9 @@ import {Footer} from "@/components/footer";
 
 export default function AboutPage() {
   return (
-    <div className={'bg-gray-50 px-6'}>
+    <div className={'bg-gray-50'}>
       <Navbar/>
-      <div className={'py-16 pb-24'}>
+      <div className={'py-16 px-4 pb-24'}>
         <AboutSection/>
       </div>
       <Footer/>
