@@ -4,7 +4,7 @@ import {Footer} from "@/components/footer";
 import {headers} from "next/headers";
 import {auth} from "@/auth";
 
-const AUTH_HOST = process.env.AUTH_HOST || 'https://withpi.ai'
+const AUTH_HOST = process.env.AUTH_HOST || 'withpi.ai'
 
 export default async function AboutPage() {
   const allHeaders = await headers();
@@ -14,7 +14,7 @@ export default async function AboutPage() {
   const queryParams = new URLSearchParams({
     redirectTo: host
   })
-  const redirectUrl = session?.user ? '/demo' : `${AUTH_HOST}/login?${queryParams}`
+  const redirectUrl = session?.user ? '/demo' : `${AUTH_HOST.startsWith('localhost') ? 'http://' : 'https://'}${AUTH_HOST}/login?${queryParams}`
   return (
     <div className={'bg-gray-50'}>
       <Navbar signedIn={Boolean(session?.user)}/>
