@@ -14,6 +14,13 @@ const getFinalResponse = (trace: any): string => {
   return responseStep?.content || ""
 }
 
+// Helper function to get badge variant based on score
+const getScoreBadgeVariant = (score: number) => {
+  if (score < 70) return "destructive" // Red
+  if (score <= 85) return "warning" // Yellow (using secondary as yellow alternative)
+  return "success" // Green
+}
+
 
 // Helper function to render trace cell content
 const renderTraceCell = (
@@ -27,33 +34,42 @@ const renderTraceCell = (
 ) => {
   if (latestTrace) {
     return (
-      <div className="space-y-4 w-[300px] min-w-[300px] max-w-[300px]">
-        <div className="text-xs p-2">
-          {(() => {
-            const finalResponse = getFinalResponse(latestTrace)
-            return finalResponse ? finalResponse : "No response available"
-          })()}
+      <div className="space-y-4 flex flex-col h-full">
+        <div className="grow">
+          <div className="text-xs text-muted-foreground whitespace-normal" style={{
+                                display: '-webkit-box',
+                                WebkitLineClamp: 6,
+                                WebkitBoxOrient: 'vertical',
+                                overflow: 'hidden',
+                                wordBreak: 'break-word',
+                                overflowWrap: 'break-word'
+                              }}>
+            {(() => {
+              const finalResponse = getFinalResponse(latestTrace)
+              return finalResponse ? finalResponse : "No response available"
+            })()}
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {traceScore !== null && (
-            <Badge variant="default" className="gap-1 text-xs">
-              <Award className="w-3 h-3" />
-              {traceScore}%
-            </Badge>
-          )}
-          <Badge variant="outline" className="gap-1 text-xs">
+        <div className="flex flex-wrap gap-2 grow-0">
+           {traceScore !== null && (
+             <Badge variant={getScoreBadgeVariant(traceScore)} className="gap-1 text-xs">
+               <Award className="w-3 h-3" />
+               {traceScore}%
+             </Badge>
+           )}
+          <Badge variant="default" className="gap-1 text-xs">
               <ListOrdered className="w-3 h-3" />
               {latestTrace.steps.length} steps
             </Badge>
           {traceLatency !== null && (
-            <Badge variant="outline" className="gap-1 text-xs">
+            <Badge variant="default" className="gap-1 text-xs">
               <Clock className="w-3 h-3" />
               {traceLatency.toFixed(2)}s
             </Badge>
           )}
           {traceCost !== null && (
-            <Badge variant="outline" className="gap-1 text-xs">
-              <DollarSign className="w-3 h-3" />${traceCost.toFixed(4)}
+            <Badge variant="default" className="gap-1 text-xs">
+              <DollarSign className="w-3 h-3" />{traceCost.toFixed(4)}
             </Badge>
           )}
         </div>
@@ -195,51 +211,58 @@ export function EvaluateAgentPanel({
               <TableHeader>
                 <TableRow className="sticky top-0">
                   <TableHead 
-                    className="sticky left-0 top-0 z-20 bg-gray-100 border-r w-[250px]"
+                    className="sticky left-0 top-0 z-20 bg-gray-100 border-r w-[350px]"
                   >
-                    Configuration
+                    Agent Configuration
                   </TableHead>
                   {uniqueInputs.map((input, idx) => (
                     <TableHead 
                       key={idx} 
-                      className="sticky top-0 border-r bg-muted/50 z-10 w-[500px]">
+                      className="sticky top-0 border-r bg-muted/50 z-10 w-[350px] truncate">
                       {input}
                     </TableHead>
                   ))}
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {configs.map((config) => {
-                  const configAverages = calculateConfigAverages(config.id, uniqueInputs)
+                 {configs.map((config) => {
+                   const configAverages = calculateConfigAverages(config.id, uniqueInputs)
 
-                  return (
+                   return (
                     <TableRow key={config.id}>
-                      <TableCell className="font-medium sticky left-0 bg-gray-100 z-10 border-r">
+                      <TableCell className="font-medium sticky left-0 bg-gray-100 z-10 border-r overflow-hidden">
                         <div className="space-y-2">
-                          <div>
+                          <div className="w-full">
                             <div className="flex items-center gap-2 mb-1">
                               <Badge variant="outline" className="text-xs font-medium">
                                 {config.model}
                               </Badge>
-                              {config.usePiJudge && config.rubricVersions && Object.keys(config.rubricVersions).length > 0 && (
-                                <Badge variant="default" className="text-xs">
-                                  Guardrails ({Object.keys(config.rubricVersions).length})
+                              {config.usePiJudge && (
+                                <Badge variant="outline" className="text-xs">
+                                  Pi Guardrails
                                 </Badge>
                               )}
-                               {config.toolSlugs && config.toolSlugs.length > 0 && (
-                                 <Tooltip>
-                                   <TooltipTrigger asChild>
-                                     <Badge variant="outline" className="text-xs">
-                                       Tools ({config.toolSlugs.length})
-                                     </Badge>
-                                   </TooltipTrigger>
-                                   <TooltipContent className="z-50">
-                                     <p>{config.toolSlugs.join(', ')}</p>
-                                   </TooltipContent>
-                                 </Tooltip>
-                               )}
+                              {config.toolSlugs && config.toolSlugs.length > 0 && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Badge variant="outline" className="text-xs">
+                                      Tools ({config.toolSlugs.length})
+                                    </Badge>
+                                  </TooltipTrigger>
+                                  <TooltipContent className="z-50">
+                                    <p>{config.toolSlugs.join(', ')}</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
                             </div>
-                            <div className="text-xs text-muted-foreground line-clamp-3" >
+                            <div className="text-xs text-muted-foreground whitespace-normal" style={{
+                              display: '-webkit-box',
+                              WebkitLineClamp: 3,
+                              WebkitBoxOrient: 'vertical',
+                              overflow: 'hidden',
+                              wordBreak: 'break-word',
+                              overflowWrap: 'break-word'
+                            }}>
                               {config.systemPrompt}
                             </div>
                           </div>
@@ -247,23 +270,23 @@ export function EvaluateAgentPanel({
                             <div className="mt-6">
                               <p className="text-xs font-medium text-muted-foreground mb-2 italic">Average Performance</p>
                               <div className="flex flex-wrap gap-2">
-                              {configAverages.avgScore !== null && (
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Badge variant="default" className="gap-1 text-xs">
-                                      <Award className="w-3 h-3" />
-                                      {configAverages.avgScore}%
-                                    </Badge>
-                                  </TooltipTrigger>
-                                  <TooltipContent>
-                                    <p>Average Judge Score: {configAverages.avgScore}%</p>
-                                  </TooltipContent>
-                                </Tooltip>
-                              )}
+                               {configAverages.avgScore !== null && (
+                                 <Tooltip>
+                                   <TooltipTrigger asChild>
+                                     <Badge variant={getScoreBadgeVariant(configAverages.avgScore)} className="gap-1 text-xs">
+                                       <Award className="w-3 h-3" />
+                                       {configAverages.avgScore}%
+                                     </Badge>
+                                   </TooltipTrigger>
+                                   <TooltipContent>
+                                     <p>Average Judge Score: {configAverages.avgScore}%</p>
+                                   </TooltipContent>
+                                 </Tooltip>
+                               )}
                               {configAverages.avgStepCount !== null && (
                                 <Tooltip>
                                   <TooltipTrigger asChild>
-                                    <Badge variant="outline" className="gap-1 text-xs">
+                                    <Badge variant="default" className="gap-1 text-xs">
                                       <ListOrdered className="w-3 h-3" />
                                       {configAverages.avgStepCount} steps
                                     </Badge>
@@ -276,7 +299,7 @@ export function EvaluateAgentPanel({
                               {configAverages.avgLatency !== null && (
                                 <Tooltip>
                                   <TooltipTrigger asChild>
-                                    <Badge variant="outline" className="gap-1 text-xs">
+                                    <Badge variant="default" className="gap-1 text-xs">
                                       <Clock className="w-3 h-3" />
                                       {configAverages.avgLatency}s
                                     </Badge>
@@ -289,8 +312,8 @@ export function EvaluateAgentPanel({
                               {configAverages.avgCost !== null && (
                                 <Tooltip>
                                   <TooltipTrigger asChild>
-                                    <Badge variant="outline" className="gap-1 text-xs">
-                                      <DollarSign className="w-3 h-3" />${configAverages.avgCost}
+                                    <Badge variant="default" className="gap-1 text-xs">
+                                      <DollarSign className="w-3 h-3" />{configAverages.avgCost}
                                     </Badge>
                                   </TooltipTrigger>
                                   <TooltipContent>
@@ -314,7 +337,7 @@ export function EvaluateAgentPanel({
                         return (
                           <TableCell 
                             key={idx}
-                            className={`border-r overflow-hidden min-w-[300px] max-w-[300px] ${latestTrace ? "cursor-pointer hover:bg-muted/50 transition-colors" : ""}`}
+                            className={`border-r overflow-hidden w-[300px] min-w-[300px] max-w-[300px] h-[150px] ${latestTrace ? "cursor-pointer hover:bg-muted/50 transition-colors" : ""}`}
                             onClick={latestTrace ? () => onLoadConfigAndInput?.(config.id, input, latestTrace.id) : undefined}
                           >
                             {renderTraceCell(
