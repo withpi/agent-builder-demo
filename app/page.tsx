@@ -12,7 +12,7 @@ export default async function AboutPage() {
   const hostName = allHeaders.get('host');
   const host = hostName?.startsWith('localhost') ? `http://${hostName}` : `https://${hostName}`
   const queryParams = new URLSearchParams({
-    redirectTo: host
+    callbackUrl: host
   })
   const redirectUrl = session?.user ? '/demo' : `${AUTH_HOST.startsWith('localhost') ? 'http://' : 'https://'}${AUTH_HOST}/login?${queryParams}`
   return (
