@@ -27,8 +27,15 @@ const renderTraceCell = (
 ) => {
   if (latestTrace) {
     return (
-      <div className="space-y-4 w-[300px] min-w-[300px] max-w-[300px]">
-        <div className="text-xs p-2">
+      <div className="space-y-4 flex flex-col">
+        <div className="text-xs h-full text-muted-foreground whitespace-normal" style={{
+                              display: '-webkit-box',
+                              WebkitLineClamp: 3,
+                              WebkitBoxOrient: 'vertical',
+                              overflow: 'hidden',
+                              wordBreak: 'break-word',
+                              overflowWrap: 'break-word'
+                            }}>
           {(() => {
             const finalResponse = getFinalResponse(latestTrace)
             return finalResponse ? finalResponse : "No response available"
@@ -195,14 +202,14 @@ export function EvaluateAgentPanel({
               <TableHeader>
                 <TableRow className="sticky top-0">
                   <TableHead 
-                    className="sticky left-0 top-0 z-20 bg-gray-100 border-r w-[250px]"
+                    className="sticky left-0 top-0 z-20 bg-gray-100 border-r w-[350px]"
                   >
                     Configuration
                   </TableHead>
                   {uniqueInputs.map((input, idx) => (
                     <TableHead 
                       key={idx} 
-                      className="sticky top-0 border-r bg-muted/50 z-10 w-[500px]">
+                      className="sticky top-0 border-r bg-muted/50 z-10 w-[300px] truncate">
                       {input}
                     </TableHead>
                   ))}
@@ -214,9 +221,9 @@ export function EvaluateAgentPanel({
 
                   return (
                     <TableRow key={config.id}>
-                      <TableCell className="font-medium sticky left-0 bg-gray-100 z-10 border-r">
+                      <TableCell className="font-medium sticky left-0 bg-gray-100 z-10 border-r overflow-hidden">
                         <div className="space-y-2">
-                          <div>
+                          <div className="w-full">
                             <div className="flex items-center gap-2 mb-1">
                               <Badge variant="outline" className="text-xs font-medium">
                                 {config.model}
@@ -239,7 +246,14 @@ export function EvaluateAgentPanel({
                                  </Tooltip>
                                )}
                             </div>
-                            <div className="text-xs text-muted-foreground line-clamp-3" >
+                            <div className="text-xs text-muted-foreground whitespace-normal" style={{
+                              display: '-webkit-box',
+                              WebkitLineClamp: 3,
+                              WebkitBoxOrient: 'vertical',
+                              overflow: 'hidden',
+                              wordBreak: 'break-word',
+                              overflowWrap: 'break-word'
+                            }}>
                               {config.systemPrompt}
                             </div>
                           </div>
@@ -314,7 +328,7 @@ export function EvaluateAgentPanel({
                         return (
                           <TableCell 
                             key={idx}
-                            className={`border-r overflow-hidden min-w-[300px] max-w-[300px] ${latestTrace ? "cursor-pointer hover:bg-muted/50 transition-colors" : ""}`}
+                            className={`border-r overflow-hidden w-[300px] min-w-[300px] max-w-[300px] ${latestTrace ? "cursor-pointer hover:bg-muted/50 transition-colors" : ""}`}
                             onClick={latestTrace ? () => onLoadConfigAndInput?.(config.id, input, latestTrace.id) : undefined}
                           >
                             {renderTraceCell(
