@@ -14,10 +14,10 @@ export default async function AboutPage() {
   const queryParams = new URLSearchParams({
     callbackUrl: host
   })
-  const redirectUrl = session?.user ? '/demo' : `${AUTH_HOST.startsWith('localhost') ? 'http://' : 'https://'}${AUTH_HOST}/login?${queryParams}`
+  const redirectUrl = session?.user?.email ? '/demo' : `${AUTH_HOST.startsWith('localhost') ? 'http://' : 'https://'}${AUTH_HOST}/login?${queryParams}`
   return (
     <div className={'bg-gray-50'}>
-      <Navbar signedIn={Boolean(session?.user)}/>
+      <Navbar user={session?.user}/>
       <div className={'py-16 px-4 pb-24'}>
         <AboutSection demoLink={redirectUrl}/>
       </div>

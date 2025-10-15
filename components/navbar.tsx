@@ -4,8 +4,11 @@ import Image from "next/image";
 import piLogo from "@/public/pi-logo-full.svg";
 import {ReactNode} from "react";
 import { signOut } from 'next-auth/react';
+import {User} from "next-auth";
+import {UserDropdown} from "@/components/auth/signin_dropdown";
+import { Button } from "./catalyst/button";
 
-export function Navbar({children, signedIn} : {children?: ReactNode; signedIn?: boolean}) {
+export function Navbar({children, user} : {children?: ReactNode; user?: User}) {
   async function logout() {
     await signOut({ redirect: true, redirectTo: '/' });
   }
@@ -13,7 +16,7 @@ export function Navbar({children, signedIn} : {children?: ReactNode; signedIn?: 
     <header className="flex items-center justify-between gap-6 px-6 py-4 border-b">
       <div className="flex items-center gap-6">
         <div className="flex items-center gap-2">
-          <Link href={'https://withpi.ai'} target={'_blank'} className="flex items-center justify-center rounded-lg ">
+          <Link href={'https://withpi.ai'} className="flex items-center justify-center rounded-lg ">
             <Image className={'w-24'} src={piLogo} alt={"Pi Labs logo"}/>
           </Link>
         </div>
@@ -40,15 +43,12 @@ export function Navbar({children, signedIn} : {children?: ReactNode; signedIn?: 
         >
           Contact
         </a>
-        {signedIn ?
-          <button onClick={logout}
-               className={'cursor-pointer border font-semibold text-gray-700 rounded-md bg-white py-1.5 p-3'}>
-            Log Out
-          </button> :
-          <a  href="https://withpi.ai"
-              target="_blank" className={' border font-semibold text-gray-700 rounded-md bg-white py-1.5 p-3'}>
+        {user?.email ?
+          <UserDropdown user={user}/> :
+          <Button color={'white'} className={'cursor-pointer'}>
             Pi Labs Home
-          </a>
+          </Button>
+
         }
       </div>
     </header>

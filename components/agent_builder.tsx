@@ -7,15 +7,16 @@ import {AgentBuilderPanel} from "@/components/agent-builder-panel";
 import {RubricBuilderPanel} from "@/components/rubric-builder-panel";
 import {EvaluateAgentPanel} from "@/components/evaluate-agent-panel";
 import {Navbar} from "@/components/navbar";
+import {User} from "next-auth";
 
-export function AgentBuilder() {
+export function AgentBuilder({user} : {user?: User}) {
   const [activeTab, setActiveTab] = useState("build-agent")
   const [pendingConfigLoad, setPendingConfigLoad] = useState<{ configId: string; input: string; traceId?: string } | null>(null)
   return (
     <AgentProvider>
       <div className="flex flex-col h-screen overflow-hidden bg-background">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-1 overflow-hidden flex-col">
-          <Navbar>
+          <Navbar user={user}>
             <TabsList>
               <TabsTrigger value="build-agent">Build Agent</TabsTrigger>
               <TabsTrigger value="build-judges">Build Pi Judges</TabsTrigger>
