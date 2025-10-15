@@ -9,6 +9,7 @@ import {Prism as SyntaxHighlighter} from "react-syntax-highlighter";
 import {vscDarkPlus} from "react-syntax-highlighter/dist/esm/styles/prism";
 import Link from "next/link";
 import {Badge} from "@/components/ui/badge";
+import {ArrowLeftIcon} from "@heroicons/react/24/outline";
 
 const integrationCode = `pnpm dev
 # or
@@ -18,6 +19,9 @@ export function AboutSection() {
   return (
     <>
       <div className="max-w-4xl mx-auto space-y-12">
+        <Link href={'https://withpi.ai/templates'} className={'text-sm text-gray-500 flex gap-2'}>
+          <ArrowLeftIcon className={'w-3'}/> Back to Templates
+        </Link>
         <div className={'flex justify-between'}>
           <div>
             <div className={'text-3xl font-semibold'}>Pi Agent Builder Demo</div>
