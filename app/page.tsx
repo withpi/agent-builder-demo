@@ -1,14 +1,25 @@
 import {AboutSection} from "@/components/about_section";
 import {Navbar} from "@/components/navbar";
 import {Footer} from "@/components/footer";
+import {headers} from "next/headers";
+import {auth} from "@/auth";
 
+const AUTH_HOST = process.env.AUTH_HOST || 'https://withpi.ai'
 
-export default function AboutPage() {
+export default async function AboutPage() {
+  const allHeaders = await headers();
+  const session = await auth();
+  const hostName = allHeaders.get('host');
+  const host = hostName?.startsWith('localhost') ? `http://${hostName}` : `https://${hostName}`
+  const queryParams = new URLSearchParams({
+    redirectTo: host
+  })
+  const redirectUrl = session?.user ? '/demo' : `${AUTH_HOST}/login?${queryParams}`
   return (
     <div className={'bg-gray-50'}>
-      <Navbar/>
+      <Navbar signedIn={Boolean(session?.user)}/>
       <div className={'py-16 px-4 pb-24'}>
-        <AboutSection/>
+        <AboutSection demoLink={redirectUrl}/>
       </div>
       <Footer/>
     </div>

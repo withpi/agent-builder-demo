@@ -13,7 +13,7 @@ import {Badge} from "@/components/ui/badge";
 const integrationCode = `pnpm dev
 # or
 npm run dev`
-export function AboutSection() {
+export function AboutSection({demoLink} : {demoLink: string}) {
   const [openCodeModal, setOpenCodeModal] = useState<string | null>(null)
   return (
     <>
@@ -26,7 +26,7 @@ export function AboutSection() {
             </div>
           </div>
           <div className={'pt-4'}>
-            <Link href={'/demo'} className={'p-6 py-4 bg-black hover:bg-zinc-700 text-white font-semibold rounded-md'}>
+            <Link href={demoLink} className={'p-6 py-4 bg-black hover:bg-zinc-700 text-white font-semibold rounded-md'}>
               View Demo
             </Link>
           </div>
