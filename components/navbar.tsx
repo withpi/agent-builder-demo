@@ -2,7 +2,6 @@
 import Link from "next/link";
 import Image from "next/image";
 import piLogo from "@/public/pi-logo-full.svg";
-import {BookOpen, Calendar, Github, Mail, MessageCircle} from "lucide-react";
 import {ReactNode} from "react";
 import { signOut } from 'next-auth/react';
 
@@ -33,10 +32,10 @@ export function Navbar({children, signedIn} : {children?: ReactNode; signedIn?: 
           About Example
         </Link>
         <a
-          href="https://calendar.app.google/wvGTUqNLcUberikD8"
+          href="https://withpi.ai/support"
           target="_blank"
           className="flex items-center gap-1.5 text-gray-600  hover:text-primary transition-colors"
-          title="Schedule time with Pi"
+          title="Get in touch"
           rel="noreferrer"
         >
           Contact
