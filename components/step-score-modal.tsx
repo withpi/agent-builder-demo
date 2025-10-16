@@ -142,7 +142,7 @@ export function StepScoreModal({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-h-screen overflow-y-auto max-w-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3">
               <span>Step Score Details</span>

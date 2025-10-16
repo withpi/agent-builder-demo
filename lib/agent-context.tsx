@@ -52,7 +52,8 @@ export interface AgentStep {
   toolCallId?: string // Links ACTION and OBSERVATION steps together
   providerOptions?: any // Added providerOptions to match AI SDK message format
   timestamp: number
-  feedback?: StepFeedback
+  feedback?: StepFeedback // Keep for backward compatibility - will be the most recent feedback
+  feedbacks?: StepFeedback[] // New array to store all feedback entries
   score?: StepScore | null // Added score field to store scoring results
 }
 
@@ -315,7 +316,18 @@ Your goal: find, distill, and clearly attribute the most relevant and reliable i
         trace.id === traceId
           ? {
               ...trace,
-              steps: trace.steps.map((step) => (step.id === stepId ? { ...step, feedback: newFeedback } : step)),
+              steps: trace.steps.map((step) => {
+                if (step.id === stepId) {
+                  const existingFeedbacks = step.feedbacks || []
+                  const updatedFeedbacks = [...existingFeedbacks, newFeedback]
+                  return { 
+                    ...step, 
+                    feedback: newFeedback, // Keep most recent feedback for backward compatibility
+                    feedbacks: updatedFeedbacks // Store all feedback entries
+                  }
+                }
+                return step
+              }),
             }
           : trace,
       ),
@@ -435,8 +447,13 @@ Your goal: find, distill, and clearly attribute the most relevant and reliable i
     const allFeedback: StepFeedback[] = []
     traces.forEach((trace) => {
       trace.steps.forEach((step) => {
-        if (step.type === stepType && step.feedback) {
-          allFeedback.push(step.feedback)
+        if (step.type === stepType) {
+          // Collect from both the new feedbacks array and legacy feedback field
+          if (step.feedbacks && step.feedbacks.length > 0) {
+            allFeedback.push(...step.feedbacks)
+          } else if (step.feedback) {
+            allFeedback.push(step.feedback)
+          }
         }
       })
     })
@@ -447,8 +464,13 @@ Your goal: find, distill, and clearly attribute the most relevant and reliable i
     const allFeedback: StepFeedback[] = []
     traces.forEach((trace) => {
       trace.steps.forEach((step) => {
-        if ((step.type === "ACTION" || step.type === "OBSERVATION") && step.toolName === toolName && step.feedback) {
-          allFeedback.push({ ...step.feedback, toolName: step.toolName })
+        if ((step.type === "ACTION" || step.type === "OBSERVATION") && step.toolName === toolName) {
+          // Collect from both the new feedbacks array and legacy feedback field
+          if (step.feedbacks && step.feedbacks.length > 0) {
+            allFeedback.push(...step.feedbacks.map(f => ({ ...f, toolName: step.toolName })))
+          } else if (step.feedback) {
+            allFeedback.push({ ...step.feedback, toolName: step.toolName })
+          }
         }
       })
     })
@@ -461,8 +483,13 @@ Your goal: find, distill, and clearly attribute the most relevant and reliable i
 
     traces.forEach((trace) => {
       trace.steps.forEach((step) => {
-        if (step.type === targetStepType && step.toolName === toolName && step.feedback) {
-          allFeedback.push({ ...step.feedback, toolName: step.toolName })
+        if (step.type === targetStepType && step.toolName === toolName) {
+          // Collect from both the new feedbacks array and legacy feedback field
+          if (step.feedbacks && step.feedbacks.length > 0) {
+            allFeedback.push(...step.feedbacks.map(f => ({ ...f, toolName: step.toolName })))
+          } else if (step.feedback) {
+            allFeedback.push({ ...step.feedback, toolName: step.toolName })
+          }
         }
       })
     })
