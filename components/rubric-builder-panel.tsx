@@ -114,7 +114,7 @@ export function RubricBuilderPanel() {
   const openEditDialog = (rubricKey: string, questionIndex: number, question: Question) => {
     setSelectedRubricKey(rubricKey)
     setEditingQuestion({ index: questionIndex, question })
-    setEditLabel(question.label)
+    setEditLabel(question.label || '')
     setEditQuestionText(question.question)
   }
 
@@ -175,9 +175,9 @@ export function RubricBuilderPanel() {
 
   const toolNames = getUniqueToolNames()
 
-  const convertFeedbackToExamples = (feedback: any[]): { good: RubricExample[]; bad: RubricExample[] } => {
-    const good: RubricExample[] = []
-    const bad: RubricExample[] = []
+  const convertFeedbackToExamples = (feedback: any[]): { goodExamples: RubricExample[]; badExamples: RubricExample[] } => {
+    const goodExamples: RubricExample[] = []
+    const badExamples: RubricExample[] = []
 
     feedback.forEach((f) => {
       const example: RubricExample = {
@@ -186,13 +186,13 @@ export function RubricBuilderPanel() {
       }
 
       if (f.rating === "up") {
-        good.push(example)
+        goodExamples.push(example)
       } else {
-        bad.push(example)
+        badExamples.push(example)
       }
     })
 
-    return { good, bad }
+    return { goodExamples, badExamples }
   }
 
   const QuestionCard = ({
