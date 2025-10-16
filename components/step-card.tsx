@@ -271,7 +271,7 @@ export function StepCard({ step, traceId, isStreaming = false }: StepCardProps) 
                     <TooltipTrigger asChild>
                       <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleThumbsClick("up")}>
                         <ThumbsUp
-                          className={`w-4 h-4 ${step.feedback?.rating === "up" ? "fill-current text-green-600" : ""}`}
+                          className={`w-4 h-4 ${step.feedbacks?.some(f => f.rating === "up") ? "fill-current text-green-600" : ""}`}
                         />
                       </Button>
                     </TooltipTrigger>
@@ -283,7 +283,7 @@ export function StepCard({ step, traceId, isStreaming = false }: StepCardProps) 
                     <TooltipTrigger asChild>
                       <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleThumbsClick("down")}>
                         <ThumbsDown
-                          className={`w-4 h-4 ${step.feedback?.rating === "down" ? "fill-current text-red-600" : ""}`}
+                          className={`w-4 h-4 ${step.feedbacks?.some(f => f.rating === "down") ? "fill-current text-red-600" : ""}`}
                         />
                       </Button>
                     </TooltipTrigger>
@@ -375,9 +375,28 @@ export function StepCard({ step, traceId, isStreaming = false }: StepCardProps) 
               </div>
             )}
 
-            {step.feedback && (
+            {(step.feedbacks && step.feedbacks.length > 0) && (
               <div className="mt-3 pt-3 border-t">
-                <div className="flex-1 text-xs text-muted-foreground">{step.feedback.description}</div>
+                <div className="space-y-2">
+                  {step.feedbacks.map((feedback, index) => (
+                    <div key={feedback.id} className="flex items-start gap-2">
+                      <div className={`flex-shrink-0 w-2 h-2 rounded-full mt-1.5 ${
+                        feedback.rating === 'up' ? 'bg-green-500' : 'bg-red-500'
+                      }`} />
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs font-medium text-muted-foreground">
+                            {feedback.rating === 'up' ? '👍' : '👎'} Feedback {index + 1}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {new Date(feedback.timestamp).toLocaleTimeString()}
+                          </span>
+                        </div>
+                        <div className="text-xs text-muted-foreground">{feedback.description}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
