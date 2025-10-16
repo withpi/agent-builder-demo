@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, memo } from "react"
 import Image from "next/image"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -14,8 +14,7 @@ import {
   prepareObservationFromSteps,
   prepareThinkingFromSteps, prepareResponseScoringData,
 } from "@/lib/utils/scoring-utils"
-import ReactMarkdown from "react-markdown"
-import remarkGfm from "remark-gfm"
+import { MemoizedMarkdown } from "./memoized-markdown"
 import {
   Dialog,
   DialogContent,
@@ -51,7 +50,7 @@ const stepDisplayNames: Record<StepType, string> = {
   FEEDBACK: "FEEDBACK",
 }
 
-export function StepCard({ step, traceId, isStreaming = false }: StepCardProps) {
+export const StepCard = memo(function StepCard({ step, traceId, isStreaming = false }: StepCardProps) {
   const {
     addFeedback,
     currentTrace,
@@ -296,9 +295,10 @@ export function StepCard({ step, traceId, isStreaming = false }: StepCardProps) 
             </div>
 
             {prettyPrint && !isStreaming ? (
-              <div className="text-sm prose prose-sm max-w-none dark:prose-invert prose-table:text-sm prose-th:p-2 prose-td:p-2">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{step.content}</ReactMarkdown>
-              </div>
+              <MemoizedMarkdown 
+                content={step.content}
+                className="text-sm prose prose-sm max-w-none dark:prose-invert prose-table:text-sm prose-th:p-2 prose-td:p-2"
+              />
             ) : (
               <div className="text-sm whitespace-pre-wrap">
                 {step.content}
@@ -321,9 +321,10 @@ export function StepCard({ step, traceId, isStreaming = false }: StepCardProps) 
             {step.type !== "OBSERVATION" && step.toolOutput && (
               <div className="mt-3 p-3 bg-background/50 rounded text-xs">
                 {prettyPrint && typeof step.toolOutput === "string" ? (
-                  <div className="prose prose-xs max-w-none dark:prose-invert prose-table:text-xs prose-th:p-1 prose-td:p-1">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{step.toolOutput}</ReactMarkdown>
-                  </div>
+                  <MemoizedMarkdown 
+                    content={step.toolOutput}
+                    className="prose prose-xs max-w-none dark:prose-invert prose-table:text-xs prose-th:p-1 prose-td:p-1"
+                  />
                 ) : (
                   <div className="font-mono">
                     {typeof step.toolOutput === "string" ? step.toolOutput : JSON.stringify(step.toolOutput, null, 2)}
@@ -496,4 +497,4 @@ export function StepCard({ step, traceId, isStreaming = false }: StepCardProps) 
       </Dialog>
     </>
   )
-}
+})

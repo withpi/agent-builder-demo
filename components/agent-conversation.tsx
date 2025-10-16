@@ -2,11 +2,11 @@
 
 import { useState, useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { Textarea } from "@/components/ui/textarea"
-import { Play, Square, ChevronRight, Settings, Layers } from "lucide-react"
+import { ChevronRight, Settings, Layers } from "lucide-react"
 import { useAgent } from "@/lib/agent-context"
 import { StepCard } from "./step-card"
 import { Spinner } from "@/components/ui/spinner"
+import { ConversationInput } from "./conversation-input"
 
 export function AgentConversation({
   usePiJudge,
@@ -37,7 +37,7 @@ export function AgentConversation({
     findOrCreateConfig,
     setCurrentConfig,
   } = useAgent()
-  const [input, setInput] = useState("")
+  const [pendingInputValue, setPendingInputValue] = useState("")
   const [isRunning, setIsRunning] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   // Ref for the sentinel element (the target)
@@ -64,7 +64,7 @@ export function AgentConversation({
 
   useEffect(() => {
     if (pendingInput) {
-      setInput(pendingInput)
+      setPendingInputValue(pendingInput)
       onInputLoaded?.()
     }
   }, [pendingInput, onInputLoaded])
@@ -221,8 +221,8 @@ export function AgentConversation({
     currentTrace,
   ])
 
-  const handleStart = async () => {
-    if (!input.trim() || !currentConfig) return
+  const handleStart = async (inputValue: string) => {
+    if (!inputValue.trim() || !currentConfig) return
 
     setIsRunning(true)
     setStreamingSteps(new Map())
@@ -247,7 +247,7 @@ export function AgentConversation({
     // Create new trace with the active config
     const trace = addTrace({
       configId: activeConfig.id,
-      input: input.trim(),
+      input: inputValue.trim(),
       steps: [],
       status: "running",
     })
@@ -289,7 +289,7 @@ export function AgentConversation({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           config: activeConfig,
-          input: input.trim(),
+          input: inputValue.trim(),
           traceId: trace.id,
           toolNames: activeConfig.toolSlugs,
           usePiJudge,
@@ -482,31 +482,13 @@ export function AgentConversation({
       </div>
 
       <div className="p-6 border-t bg-muted/30 flex-shrink-0">
-        <div className="flex gap-2">
-          <Textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Press Enter to send, Shift+Enter for new line"
-            className="min-h-[60px] resize-none"
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault()
-                if (!isRunning) handleStart()
-              }
-            }}
-            disabled={isRunning}
-          />
-          <div className="flex flex-col gap-2">
-            <Button onClick={handleStart} disabled={isRunning || !input.trim()} className="gap-2">
-              <Play className="w-4 h-4" />
-              Start
-            </Button>
-            <Button onClick={handleStop} disabled={!isRunning} variant="destructive" className="gap-2">
-              <Square className="w-4 h-4" />
-              Stop
-            </Button>
-          </div>
-        </div>
+        <ConversationInput
+          onConfirm={handleStart}
+          isRunning={isRunning}
+          onStop={handleStop}
+          initialValue={pendingInputValue}
+          disabled={!currentConfig}
+        />
       </div>
     </div>
   )
